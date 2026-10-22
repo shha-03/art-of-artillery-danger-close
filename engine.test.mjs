@@ -221,14 +221,17 @@ test('all authored starters are valid and every solution proves exactly its thre
     const starter = analyze(mission.starter, mission.goalSolution, mission);
     assert.equal(starter.error, undefined, mission.id);
     assert.equal(starter.valid, true, mission.id);
+    assert.equal(starter.goal.pass, false, mission.id);
     const solution = analyze(mission.solution, mission.goalSolution, mission);
     assert.equal(solution.valid, true, mission.id);
     assert.equal(solution.goal.pass, true, mission.id);
     assert.equal(solution.exitStateCount, 3, mission.id);
     assert.equal(solution.traceStatus, 'terminated', mission.id);
+    assert.equal(solution.initial.checkedCount, 3, mission.id);
     assert.deepEqual(solution.candidates, mission.enemies, mission.id);
-    assert.equal(mission.enemies.some((unit) =>
-      unit.x === solution.trace.at(-1).x && unit.y === solution.trace.at(-1).y), true, mission.id);
+    assert.equal(solution.traces.length, 3, mission.id);
+    assert.equal(solution.traces.every(run => run.traceStatus === 'terminated'), true, mission.id);
+    assert.deepEqual(solution.traces.map(run => run.trace.at(-1)).sort((a,b)=>a.x-b.x||a.y-b.y), mission.enemies, mission.id);
     const clear = order(createBattle(mission), mission.solution, mission.goalSolution, 'salvo');
     assert.equal(clear.battle.cleared, true, mission.id);
     assert.equal(clear.battle.friendlyKills, 0, mission.id);
@@ -278,7 +281,7 @@ test('six failed initial checks exhaust a mission and further commands cannot ch
 test('a goal arithmetic error cancels the entire command without consuming shots or budget', () => {
   const mission = LEVELS[0];
   const battle = createBattle(mission);
-  const result = order(battle, mission.solution, 'x * 9007199254740991 == 0', 'salvo');
+  const result = order(battle, mission.solution, 'y * 9007199254740991 == 0', 'salvo');
   assert.equal(typeof result.error, 'string');
   assert.equal(result.cost, 0);
   assert.equal(result.battle, battle);
@@ -287,7 +290,7 @@ test('a goal arithmetic error cancels the entire command without consuming shots
 
 test('interrupted arithmetic evaluation reports every proof check as incomplete', () => {
   const mission = LEVELS[0];
-  const result = analyze(mission.solution, 'x * 9007199254740991 == 0', mission);
+  const result = analyze(mission.solution, 'y * 9007199254740991 == 0', mission);
   assert.equal(typeof result.error, 'string');
   assert.equal(result.valid, false);
   assert.ok(result.checkedStateCount > 0 && result.checkedStateCount < DOMAIN.stateCount);
@@ -402,4 +405,91 @@ test('unknown external diagnostics are preserved without string-matching transla
   assert.equal(formatEngineError(external, 'en'), external.message);
   assert.equal(formatEngineError(report, 'en'), external.message);
   assert.equal(formatEngineError(null, 'en'), 'Unknown execution error. Inspect the error report.');
+});
+
+const { initialStatesForLevel: getInitialStates } = await import(
+  `data:text/javascript;base64,${Buffer.from(engineSource).toString('base64')}`
+);
+
+test('all allowed inputs must establish the invariant and each input has its own execution trace', () => {
+  const inputs = [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 2 }];
+  const mission = level({ initial: undefined, initialStates: inputs });
+  const report = analyze('x >= 0 && x <= 2 && y >= 0 && y <= 2', 'x == 2 && y >= 0 && y <= 2', mission);
+  assert.equal(report.error, undefined);
+  assert.equal(report.valid, true);
+  assert.deepEqual(report.initial, { pass: true, checkedCount: 3 });
+  assert.equal(report.preservation.pass, true);
+  assert.equal(report.goal.pass, true);
+  assert.equal(report.checkedStateCount, DOMAIN.stateCount);
+  assert.deepEqual(report.traces.map((run) => run.initial), inputs);
+  assert.deepEqual(report.traces.map((run) => run.trace.at(-1)), [{ x: 2, y: 0 }, { x: 2, y: 1 }, { x: 2, y: 2 }]);
+  assert.ok(report.traces.every((run) => run.traceStatus === 'terminated' && run.trace.length === 3));
+  assert.deepEqual(report.candidates, report.traces.map((run) => run.trace.at(-1)));
+  assert.deepEqual(report.trace, report.traces[0].trace);
+  assert.equal(report.traceStatus, 'terminated');
+
+  const rejected = analyze('x >= 0 && x <= 2 && y == 0', 'true', mission);
+  assert.equal(rejected.valid, false);
+  assert.deepEqual(rejected.initial, { pass: false, checkedCount: 3, before: inputs[1] });
+  assert.equal(rejected.preservation.pass, true);
+  const battle = createBattle(mission);
+  const command = order(battle, 'x >= 0 && x <= 2 && y == 0', 'true', 'salvo');
+  assert.equal(command.dud, true);
+  assert.equal(command.cost, 1);
+  assert.equal(command.battle.remaining, battle.remaining - 1);
+  assert.deepEqual(command.shots, []);
+});
+
+test('initial input sets reject malformed or duplicate states and battle normalization owns its copies', () => {
+  for (const initialStates of [[], null, {}, [undefined], [{ x: 0, y: 0 }, { x: 33, y: 0 }], [{ x: 0, y: 0.5 }]]) {
+    const mission = level({ initialStates });
+    assert.throws(() => getInitialStates(mission), TypeError);
+    assert.throws(() => createBattle(mission), TypeError);
+    const report = analyze('true', 'true', mission);
+    assert.equal(report.valid, false);
+    assert.deepEqual(report.initial, { pass: null });
+    assert.deepEqual(report.traces, []);
+  }
+  const duplicate = captureError(() => getInitialStates(level({ initialStates: [{ x: 1, y: 2 }, { x: 1, y: 2 }] })));
+  assert.equal(duplicate.errorCode, 'duplicate-initial-state');
+  assert.equal(formatEngineError(duplicate, 'en'), 'Duplicate initial input. Assign coordinates (1, 2) only once.');
+  const empty = captureError(() => getInitialStates(level({ initialStates: [] })));
+  assert.equal(formatEngineError(empty, 'en'), 'Initial input format invalid. Supply a nonempty array of coordinates.');
+
+  const legacy = level();
+  const legacyInputs = getInitialStates(legacy);
+  assert.deepEqual(legacyInputs, [legacy.initial]);
+  assert.notEqual(legacyInputs[0], legacy.initial);
+  assert.deepEqual(createBattle(legacy).level.initialStates, [legacy.initial]);
+  const mission = level({ initial: { x: 33, y: 0 }, initialStates: [{ x: 0, y: 1 }, { x: 0, y: 2 }] });
+  const normalized = getInitialStates(mission);
+  const battle = createBattle(mission);
+  assert.deepEqual(battle.level.initial, { x: 0, y: 1 });
+  assert.notEqual(battle.level.initialStates, mission.initialStates);
+  assert.notEqual(battle.level.initialStates[0], mission.initialStates[0]);
+  assert.notEqual(battle.level.initial, battle.level.initialStates[0]);
+  normalized[0].y = 8;
+  mission.initialStates[0].y = 7;
+  mission.initialStates.push({ x: 0, y: 3 });
+  assert.deepEqual(battle.level.initialStates, [{ x: 0, y: 1 }, { x: 0, y: 2 }]);
+  assert.deepEqual(battle.level.initial, { x: 0, y: 1 });
+});
+
+test('per-input termination statuses stay distinct while legacy trace fields select the first input', () => {
+  const mission = level({
+    initialStates: [{ x: 2, y: 0 }, { x: 0, y: 0 }],
+    step: ({ x, y }) => ({ x, y }),
+  });
+  const report = analyze('(x == 0 || x == 2) && y == 0', 'x == 2 && y == 0', mission);
+  assert.equal(report.valid, true);
+  assert.equal(report.initial.checkedCount, 2);
+  assert.deepEqual(report.traces.map((run) => run.traceStatus), ['terminated', 'cycle']);
+  assert.deepEqual(report.traces[0].trace, [{ x: 2, y: 0 }]);
+  assert.deepEqual(report.traces[1].trace, [{ x: 0, y: 0 }, { x: 0, y: 0 }]);
+  assert.deepEqual(report.trace, report.traces[0].trace);
+  assert.equal(report.traceStatus, 'terminated');
+  const legacyReport = analyze('x >= 0 && x <= 2 && y == 0', 'true', level());
+  assert.deepEqual(legacyReport.initial, { pass: true, checkedCount: 1 });
+  assert.equal(legacyReport.traces.length, 1);
+  assert.deepEqual(legacyReport.traces[0], { initial: { x: 0, y: 0 }, trace: legacyReport.trace, traceStatus: legacyReport.traceStatus });
 });

@@ -178,6 +178,14 @@ p.mission-brief { margin: 0; padding: 15px 0; color: var(--muted); font-size: 12
 .code-panel { padding: 15px 16px; border: 1px solid var(--line); background: #141a14; }
 .code-panel pre { margin: 0; overflow-x: auto; font-family: var(--mono); font-size: 12px; line-height: 1.95; tab-size: 2; }
 .code-panel code { font: inherit; color: #d4d7bf; }
+.initial-input-panel { padding: 12px 14px; border: 1px solid var(--line); border-bottom: 0; background: #1b231a; }
+.initial-input-label { margin: 0 0 8px; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.initial-inputs { display: flex; flex-wrap: wrap; gap: 7px; }
+.initial-input { display: flex; align-items: center; gap: 9px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 2px; background: #141a14; color: var(--cream); cursor: pointer; }
+.initial-input > span { color: var(--faint); font: 9px var(--mono); }
+.initial-input > code { font: 12px var(--mono); }
+.initial-input.active { border-color: #91a976; background: #293522; }
+.initial-input:focus-visible { outline: 2px solid var(--orange-bright); outline-offset: 2px; }
 .code-line { display: block; min-height: 1.95em; }
 .line-number { display: inline-block; min-width: 25px; padding-right: 13px; color: #545e4c; font-size: 10px; user-select: none; }
 .code-keyword { color: #c3ba80; }

@@ -38,6 +38,8 @@ const ERROR_MESSAGES = {
     'unsupported-ast': () => '미지원 수식 구조 확인.',
     'predicate-type': (p) => `${errorLabel(p.label, 'ko')}: 참/거짓을 나타내는 식을 입력하라.`,
     'invalid-initial': (p) => `초기 좌표 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
+    'invalid-initial-states': () => '초기 입력 형식 오류. 하나 이상의 좌표를 배열로 지정하라.',
+    'duplicate-initial-state': (p) => `초기 입력 중복. 좌표 (${p.x}, ${p.y})는 한 번만 지정하라.`,
     'invalid-board-size': (p) => `전장 크기 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
     'missing-step': () => '프로그램의 한 단계 실행 함수 누락.',
     'missing-coordinate': () => '프로그램 실행 결과에 좌표 누락.',
@@ -65,6 +67,8 @@ const ERROR_MESSAGES = {
     'unsupported-ast': () => 'Unsupported expression structure detected.',
     'predicate-type': (p) => `${errorLabel(p.label, 'en')}: enter a Boolean expression.`,
     'invalid-initial': (p) => `Initial coordinates invalid. Use integers from ${p.min} to ${p.max}.`,
+    'invalid-initial-states': () => 'Initial input format invalid. Supply a nonempty array of coordinates.',
+    'duplicate-initial-state': (p) => `Duplicate initial input. Assign coordinates (${p.x}, ${p.y}) only once.`,
     'invalid-board-size': (p) => `Board size invalid. Use an integer from ${p.min} to ${p.max}.`,
     'missing-step': () => 'Program transition function missing.',
     'missing-coordinate': () => 'Program transition returned no coordinates.',
@@ -272,12 +276,31 @@ function predicate(source, label) {
   return ast;
 }
 
+/** Return independent copies of every allowed initial input, in authored order. */
+export function initialStatesForLevel(level) {
+  const states = level?.initialStates === undefined ? [level?.initial] : level.initialStates;
+  if (!Array.isArray(states) || states.length === 0) {
+    throw engineError('invalid-initial-states', {}, TypeError);
+  }
+  const seen = new Set();
+  const initialStates = [];
+  for (const state of states) {
+    if (!inDomain(state)) throw engineError('invalid-initial', { min: DOMAIN.min, max: DOMAIN.max }, TypeError);
+    const location = key(state);
+    if (seen.has(location)) throw engineError('duplicate-initial-state', point(state), TypeError);
+    seen.add(location);
+    initialStates.push(point(state));
+  }
+  return initialStates;
+}
+
 function validateLevel(level) {
-  if (!level || !inDomain(level.initial)) throw engineError('invalid-initial', { min: DOMAIN.min, max: DOMAIN.max }, TypeError);
+  const initialStates = initialStatesForLevel(level);
   if (!Number.isInteger(level.size) || level.size < 1 || level.size > DOMAIN.max + 1) {
     throw engineError('invalid-board-size', { min: 1, max: DOMAIN.max + 1 }, TypeError);
   }
   if (typeof level.step !== 'function') throw engineError('missing-step', {}, TypeError);
+  return initialStates;
 }
 
 function successor(level, before) {
@@ -286,10 +309,10 @@ function successor(level, before) {
   return point(after);
 }
 
-function traceProgram(level, guard) {
-  const trace = [point(level.initial)];
+function traceProgram(level, guard, initial) {
+  const trace = [point(initial)];
   const visited = new Set();
-  let current = point(level.initial);
+  let current = point(initial);
   while (true) {
     if (!inDomain(current)) return { trace, traceStatus: 'outside-domain' };
     if (!evaluate(guard, current)) return { trace, traceStatus: 'terminated' };
@@ -303,8 +326,9 @@ function traceProgram(level, guard) {
 /**
  * S = I && !guard is checked over the WHOLE domain. Only candidates are
  * projected onto the visible board. A goal witness may therefore be off-board.
- * A preservation witness may be unreachable from the fixed initial state.
- * trace is one actual execution; it is a visualization, never proof evidence.
+ * A preservation witness may be unreachable from every allowed initial input.
+ * traces contains an actual execution for each input, never proof evidence.
+ * trace/traceStatus retain the first input's execution for legacy consumers.
  */
 export function analyze(source, goalSource, level) {
   const result = {
@@ -314,17 +338,30 @@ export function analyze(source, goalSource, level) {
     goal: { pass: null },
     candidates: [],
     trace: [],
+    traces: [],
     exitStateCount: 0,
     checkedStateCount: 0,
   };
   try {
-    validateLevel(level);
+    const initialStates = validateLevel(level);
     const invariant = predicate(source, 'invariant');
     const goal = predicate(goalSource, 'goal');
     const guard = predicate(level.guardSource, 'guard');
-    Object.assign(result, traceProgram(level, guard));
-    result.initial = evaluate(invariant, level.initial)
-      ? { pass: true } : { pass: false, before: point(level.initial) };
+    result.traces = initialStates.map((initial) => ({
+      initial: point(initial),
+      ...traceProgram(level, guard, initial),
+    }));
+    result.trace = result.traces[0].trace;
+    result.traceStatus = result.traces[0].traceStatus;
+    result.initial = { pass: true, checkedCount: 0 };
+    for (const initial of initialStates) {
+      const pass = evaluate(invariant, initial);
+      result.initial.checkedCount++;
+      if (!pass && result.initial.pass) {
+        result.initial.pass = false;
+        result.initial.before = point(initial);
+      }
+    }
     result.preservation = { pass: true };
     result.goal = { pass: true };
     for (let x = DOMAIN.min; x <= DOMAIN.max; x++) {
@@ -380,7 +417,7 @@ function updateBattleStatus(battle) {
 
 /** Initial arrays are preserved in battle.level; battle.enemies/allies are alive. */
 export function createBattle(level) {
-  validateLevel(level);
+  const initialStates = validateLevel(level);
   predicate(level.guardSource, 'guard');
   const budget = level.commands ?? level.budget ?? 6;
   if (!Number.isSafeInteger(budget) || budget < 0) throw engineError('invalid-command-budget', {}, TypeError);
@@ -388,7 +425,13 @@ export function createBattle(level) {
   const enemies = copyUnits(level.enemies ?? [], level.size, occupied);
   const allies = copyUnits(level.allies ?? [], level.size, occupied);
   return updateBattleStatus({
-    level: { ...level, initial: point(level.initial), enemies: enemies.map(point), allies: allies.map(point) },
+    level: {
+      ...level,
+      initial: point(initialStates[0]),
+      initialStates: initialStates.map(point),
+      enemies: enemies.map(point),
+      allies: allies.map(point),
+    },
     budget,
     remaining: budget,
     enemies,

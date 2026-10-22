@@ -23,7 +23,7 @@ test('every dynamic report has complete English copy with matching interpolation
     assert.doesNotMatch(COPY.en[key], /[가-힣]/, key);
     assert.ok(COPY.en[key].length > 0, key);
   }
-  assert.equal(translate('en', 'initialWitness', {before:'(0, 0)'}), 'Initial state (0, 0) · Invariant does not hold.');
+  assert.equal(translate('en', 'initialWitness', {before:'(0, 0)'}), 'Allowed initial input (0, 0) · Invariant does not hold.');
   assert.equal(translate('ko', 'sound', {state:'ON'}), '사운드 ON');
   // Replacement values are data; dollar patterns and braces are not interpreted again.
   assert.equal(translate('en', 'cellLabel', {x:1,y:2,unit:'$& {x}',objective:''}), 'Coordinate 1, 2: $& {x}');

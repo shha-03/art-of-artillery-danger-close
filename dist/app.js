@@ -1,4 +1,4 @@
-import { parseExpression, evaluate, createBattle, order, formatEngineError } from './engine.js';
+import { parseExpression, evaluate, initialStatesForLevel, createBattle, order, formatEngineError } from './engine.js';
 import { LEVELS } from './levels.js';
 import { LANGUAGE_STORAGE_KEY, resolveLanguage, translate } from './i18n.js';
 import { applyStaticTranslations } from './ui-copy.js';
@@ -12,12 +12,13 @@ const unitIcons = {
   enemy: '<svg class="unit-icon" viewBox="0 0 40 40" aria-hidden="true"><path d="M8 15h24v15H8z" fill="currentColor" opacity=".18"/><rect x="7" y="15" width="26" height="17" rx="5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 18v10m16-10v10M15 15v-5h10v10H15zM20 3v10" stroke="currentColor" stroke-width="2.5" fill="none"/><path d="M13 29h14" stroke="currentColor" stroke-width="2"/></svg>',
   friendly: '<svg class="unit-icon" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 5l12 5v10c0 7-7 12-12 15C15 32 8 27 8 20V10z" fill="currentColor" opacity=".14"/><path d="M20 5l12 5v10c0 7-7 12-12 15C15 32 8 27 8 20V10z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 13v13m-6-6h12" stroke="currentColor" stroke-width="2.5"/></svg>'
 };
-let levelIndex = 0, battle, lastAnalysis = null, records = [], selectedTargets = new Set();
+let levelIndex = 0, selectedInitialIndex = 0, battle, lastAnalysis = null, records = [], selectedTargets = new Set();
 let preview = true, traceVisible = false, busy = false, sound = false, audioContext = null;
 let witness = null, impacts = [], hintCount = 1, turnToken = 0, toastTimer;
+const BEST_STORAGE_KEY = 'danger-close-best-math-v2';
 let best = {};
 try {
-  const savedBest = JSON.parse(localStorage.getItem('danger-close-best-v1') || '{}');
+  const savedBest = JSON.parse(localStorage.getItem(BEST_STORAGE_KEY) || '{}');
   if (savedBest && typeof savedBest === 'object' && !Array.isArray(savedBest)) {
     best = Object.fromEntries(LEVELS.filter(l=>Number.isSafeInteger(savedBest[l.id])).map(l=>[l.id,savedBest[l.id]]));
   }
@@ -39,7 +40,7 @@ function closeDialog(id) { $(id).close(); }
 function expression(source) { try { return source.trim() ? parseExpression(source) : null; } catch { return null; } }
 function matches(ast, p) { try { return ast && evaluate(ast, p) === true; } catch { return false; } }
 function traceForLevel() {
-  const l = level(), guard = parseExpression(l.guardSource), trace = [{...l.initial}];
+  const l = level(), guard = parseExpression(l.guardSource), trace = [initialStatesForLevel(l)[selectedInitialIndex]];
   for (let n=0; n<256 && evaluate(guard, trace.at(-1)); n++) trace.push(l.step(trace.at(-1)));
   return trace;
 }
@@ -58,6 +59,9 @@ function previewCandidates() {
 }
 function renderTabs() {
   $('mission-tabs').innerHTML = LEVELS.map((l,i)=>`<button class="mission-tab ${i===levelIndex?'active':''}" data-level="${i}" ${busy?'disabled':''} aria-current="${i===levelIndex?'step':'false'}"><span class="mission-index">${esc(l.id)}</span><span class="mission-name">${esc(levelCopy(l).name)}<small>${esc(l.subtitle)}</small></span><span class="mission-check">${best[l.id]!==undefined?`${best[l.id]} PT`:'↗'}</span></button>`).join('');
+}
+function renderInitialInputs() {
+  $('initial-inputs').innerHTML = initialStatesForLevel(level()).map((p,i)=>`<button class="initial-input ${i===selectedInitialIndex?'active':''}" data-initial-index="${i}" aria-pressed="${i===selectedInitialIndex}" aria-label="${esc(t('inputCase',{number:i+1,point:point(p)}))}"><span>${pad(i+1)}</span><code>${point(p)}</code></button>`).join('');
 }
 function renderMap() {
   const l=level(), candidates=previewCandidates(), candidateSet=new Set(candidates.map(key));
@@ -80,7 +84,7 @@ function renderMap() {
   const xy = p => `${p.x*100+50},${(l.size-1-p.y)*100+50}`;
   let overlay='';
   if(traceVisible) {
-    const t=traceForLevel(); overlay += `<polyline class="trace-path" points="${t.map(xy).join(' ')}"/><circle class="trace-start" cx="${l.initial.x*100+50}" cy="${(l.size-1-l.initial.y)*100+50}" r="11"/>`;
+    const t=traceForLevel(), start=t[0]; overlay += `<polyline class="trace-path" points="${t.map(xy).join(' ')}"/><circle class="trace-start" cx="${start.x*100+50}" cy="${(l.size-1-start.y)*100+50}" r="11"/>`;
     const end=t.at(-1); overlay += `<circle class="trace-end" cx="${end.x*100+50}" cy="${(l.size-1-end.y)*100+50}" r="15"/>`;
   }
   for(const p of impacts) overlay+=`<path class="shell-trail" d="M -30 ${l.size*100+50} Q ${p.x*100-100} ${Math.max(-50,(l.size-1-p.y)*100-180)} ${xy(p).replace(',',' ')}"/>`;
@@ -104,7 +108,8 @@ function renderStats() {
 function renderChecks() {
   $('verification-strip').innerHTML=['initial','preservation','goal'].map(k=>{
     const check=lastAnalysis?.[k], pending=Boolean(lastAnalysis?.error)||!check||typeof check.pass!=='boolean';
-    return `<div class="check-item ${pending?'pending':check.pass?'pass':'fail'}"><span class="check-icon">${pending?'○':check.pass?'✓':'×'}</span><span class="check-title">${esc(t(k))}</span><span class="check-detail">${esc(t(pending?(lastAnalysis?.error?'incomplete':'afterOrder'):check.pass?'passed':k==='goal'?'unproven':'dud'))}</span></div>`;
+    const detail=pending?t(lastAnalysis?.error?'incomplete':'afterOrder'):check.pass?t(k==='initial'?'initialPassed':'passed',{count:check.checkedCount}):t(k==='goal'?'unproven':'dud');
+    return `<div class="check-item ${pending?'pending':check.pass?'pass':'fail'}"><span class="check-icon">${pending?'○':check.pass?'✓':'×'}</span><span class="check-title">${esc(t(k))}</span><span class="check-detail">${esc(detail)}</span></div>`;
   }).join('');
 }
 function feedback(kind,title,body,detail='') {
@@ -140,13 +145,13 @@ function renderLogs() {
     return `<li class="log-entry"><span class="log-marker ${r.kind}"></span><div><strong>${esc(title)}</strong><p>${esc(body)}</p><code>${esc(r.expression)}</code></div><span class="log-time">#${pad(records.length-i)}</span></li>`;
   }).join(''):`<li class="empty-log">${esc(t('emptyLog'))}</li>`;
 }
-function render() {renderTabs();renderStats();renderMap();renderChecks();renderLogs();renderFeedback();}
+function render() {renderTabs();renderInitialInputs();renderStats();renderMap();renderChecks();renderLogs();renderFeedback();}
 function invalidateAnalysis() {
   lastAnalysis=null; witness=null; renderChecks();renderMap();renderStats();
   feedbackState={type:'modified'};renderFeedback();
 }
 function loadLevel(index) {
-  levelIndex=index; battle=createBattle(level()); lastAnalysis=null;records=[];selectedTargets=new Set();witness=null;impacts=[];hintCount=1;busy=false;turnToken++;
+  levelIndex=index; selectedInitialIndex=0; battle=createBattle(level()); lastAnalysis=null;records=[];selectedTargets=new Set();witness=null;impacts=[];hintCount=1;busy=false;turnToken++;
   $('invariant-input').value=level().starter; $('goal-input').value='';
   $('operation-label').textContent=`OPERATION ${level().id} / ${pad(LEVELS.length)}`;
   $('mission-brief').textContent=levelCopy().brief;
@@ -187,7 +192,7 @@ async function fire(mode) {
     if(result.dud) {
       const initial=lastAnalysis?.initial?.pass===false;
       const check=initial?lastAnalysis.initial:lastAnalysis.preservation;
-      witness=check?.before || (initial?level().initial:null);
+      witness=check?.before || (initial?initialStatesForLevel(level())[0]:null);
       feedbackState={type:'dud',mode,analysis:lastAnalysis};
       records.unshift({...feedbackState,kind:'dud',expression:$('invariant-input').value});
       playSound(true);
@@ -210,7 +215,7 @@ function showResult() {
   const clear=battle.cleared;
   if(clear) {
     best[level().id]=Math.max(best[level().id]??-Infinity,battle.score);
-    try{localStorage.setItem('danger-close-best-v1',JSON.stringify(best));}catch{}
+    try{localStorage.setItem(BEST_STORAGE_KEY,JSON.stringify(best));}catch{}
   }
   renderResult();renderTabs();openDialog('result-dialog');
 }
@@ -245,6 +250,7 @@ function changeLanguage(nextLanguage) {
 
 $('language-select').addEventListener('change',e=>changeLanguage(e.target.value));
 $('mission-tabs').addEventListener('click',e=>{const b=e.target.closest('[data-level]');if(b&&!busy)loadLevel(Number(b.dataset.level));});
+$('initial-inputs').addEventListener('click',e=>{const b=e.target.closest('[data-initial-index]');if(!b)return;selectedInitialIndex=Number(b.dataset.initialIndex);traceVisible=true;renderInitialInputs();renderMap();});
 $('grid').addEventListener('click',e=>{const b=e.target.closest('[data-cell]');if(!b||busy||battle.finished)return;const k=b.dataset.cell;selectedTargets.has(k)?selectedTargets.delete(k):selectedTargets.add(k);setSelectedGoal();});
 $('grid').addEventListener('pointerover',e=>{const b=e.target.closest('[data-cell]');if(b)$('hover-coordinate').textContent=`COORDINATE (${b.dataset.cell.replace(',',', ')})`;});
 $('grid').addEventListener('pointerleave',()=>{$('hover-coordinate').textContent=t('coordinatePrompt');});
