@@ -1,4 +1,4 @@
-import { parseExpression, evaluate, createBattle, order, executeTransition, formatEngineError } from './engine.js';
+import { parseExpression, evaluate, createBattle, order, formatEngineError } from './engine.js';
 import { LEVELS } from './levels.js';
 import { LANGUAGE_STORAGE_KEY, resolveLanguage, translate } from './i18n.js';
 import { applyStaticTranslations } from './ui-copy.js';
@@ -40,13 +40,7 @@ function expression(source) { try { return source.trim() ? parseExpression(sourc
 function matches(ast, p) { try { return ast && evaluate(ast, p) === true; } catch { return false; } }
 function traceForLevel() {
   const l = level(), guard = parseExpression(l.guardSource), trace = [{...l.initial}];
-  // Rendering has a step/viewport limit; the SMT proof has no coordinate bound.
-  for (let n=0; n<256 && evaluate(guard, trace.at(-1)); n++) {
-    const next=executeTransition(l,trace.at(-1));
-    const p={x:Number(next.x),y:Number(next.y)};
-    if(!Number.isSafeInteger(p.x)||!Number.isSafeInteger(p.y)||p.x<0||p.y<0||p.x>=l.size||p.y>=l.size)break;
-    trace.push(p);
-  }
+  for (let n=0; n<256 && evaluate(guard, trace.at(-1)); n++) trace.push(l.step(trace.at(-1)));
   return trace;
 }
 function previewCandidates() {
@@ -105,28 +99,12 @@ function renderStats() {
   $('single-button').disabled=disabled; $('salvo-button').disabled=disabled;
   $('restart-button').disabled=busy; $('invariant-input').disabled=busy||battle.finished; $('goal-input').disabled=busy||battle.finished;
   $('target-enemies').disabled=busy||battle.finished;
-  $('command-note').textContent=t(busy?'checkingNote':battle.finished?'commandEnded':!$('goal-input').value.trim()?'commandNoGoal':'commandKeys');
-  $('verification-strip').setAttribute('aria-busy',String(busy));
-}
-function checkReason(check) {
-  const reason=check?.reason || '';
-  if(reason==='undefined-expression')return t('reasonUndefined');
-  if(reason==='isolation-required')return t('reasonIsolation');
-  if(reason==='unsupported-browser')return t('reasonUnsupported');
-  if(reason==='initialization-timeout')return t('reasonInitializationTimeout');
-  if(reason==='solver-unavailable'||reason==='initialization-cancelled')return t('reasonUnavailable');
-  if(reason==='solver-error')return t('reasonSolverError');
-  if(/timeout|canceled|cancelled/i.test(reason))return t('reasonTimeout');
-  if(/resource|rlimit|max.*limit/i.test(reason))return t('reasonResources');
-  return t('reasonUnknown');
+  $('command-note').textContent=t(battle.finished?'commandEnded':!$('goal-input').value.trim()?'commandNoGoal':'commandKeys');
 }
 function renderChecks() {
   $('verification-strip').innerHTML=['initial','preservation','goal'].map(k=>{
-    const check=lastAnalysis?.[k], unknown=check?.status==='unknown';
-    const pending=Boolean(lastAnalysis?.error)||!check||typeof check.pass!=='boolean';
-    const state=unknown?'unknown':pending?'pending':check.pass?'pass':'fail';
-    const detail=unknown?t('undecided'):t(pending?(busy?'checking':lastAnalysis?.error?'incomplete':'afterOrder'):check.pass?'passed':k==='goal'?'unproven':'dud');
-    return `<div class="check-item ${state}" ${unknown?`title="${esc(checkReason(check))}"`:''}><span class="check-icon">${unknown?'?':pending?'○':check.pass?'✓':'×'}</span><span class="check-title">${esc(t(k))}</span><span class="check-detail">${esc(detail)}</span></div>`;
+    const check=lastAnalysis?.[k], pending=Boolean(lastAnalysis?.error)||!check||typeof check.pass!=='boolean';
+    return `<div class="check-item ${pending?'pending':check.pass?'pass':'fail'}"><span class="check-icon">${pending?'○':check.pass?'✓':'×'}</span><span class="check-title">${esc(t(k))}</span><span class="check-detail">${esc(t(pending?(lastAnalysis?.error?'incomplete':'afterOrder'):check.pass?'passed':k==='goal'?'unproven':'dud'))}</span></div>`;
   }).join('');
 }
 function feedback(kind,title,body,detail='') {
@@ -136,7 +114,7 @@ function feedback(kind,title,body,detail='') {
 function witnessReport(analysis) {
   const initial=analysis.initial.pass===false;
   const check=initial?analysis.initial:analysis.preservation;
-  return t(initial?'initialWitness':'preservationWitness',{before:point(check.before),after:point(check.after)});
+  return t(initial?'initialWitness':'preservationWitness',{before:point(check.before),after:point(check.after),outside:check.outsideDomain?t('outsideDomain'):''});
 }
 function shotReport(event) {
   return {mode:t(event.mode),count:event.shots.length,enemy:event.shots.filter(s=>s.type==='enemy').length,friendly:event.shots.filter(s=>s.type==='friendly').length,neutral:event.shots.filter(s=>s.type==='neutral').length};
@@ -144,12 +122,6 @@ function shotReport(event) {
 function renderFeedback() {
   const f=feedbackState;
   if(f.type==='ready'||f.type==='modified') return feedback('ready',t(`${f.type}Title`),t(`${f.type}Body`));
-  if(f.type==='checking')return feedback('ready',t('checkingTitle'),t('checkingBody'));
-  if(f.type==='inconclusive') {
-    const details=['initial','preservation','goal'].filter(k=>f.analysis?.[k]?.pass===null).map(k=>`${t(k)}: ${checkReason(f.analysis[k])}${f.analysis[k].before?` · ${point(f.analysis[k].before)}`:''}`).join(' / ');
-    const runtimeFailure=['initial','preservation','goal'].some(k=>['isolation-required','unsupported-browser','initialization-timeout','initialization-cancelled','solver-unavailable','solver-error'].includes(f.analysis?.[k]?.reason));
-    return feedback('warning',t('inconclusiveTitle'),t(runtimeFailure?'runtimeUnavailableBody':'inconclusiveBody'),`${t('noCharge')} ${details}`);
-  }
   if(f.type==='error') return feedback('error',t('rejectedTitle'),formatEngineError(f.error,language),t('noCharge'));
   if(f.type==='empty') return feedback('ready',t('emptyTitle'),t('emptyBody'),t('noCharge'));
   if(f.type==='exception') return feedback('error',t('exceptionTitle'),formatEngineError(f.error,language));
@@ -199,17 +171,13 @@ function playSound(dud=false) {
 async function fire(mode) {
   if(busy||battle.finished) return;
   if(!$('goal-input').value.trim()) { flash('missingGoal');$('goal-input').focus();return; }
-  busy=true;lastAnalysis=null;witness=null;feedbackState={type:'checking'};render();
+  busy=true;renderStats();
   const currentToken=turnToken;
   try {
-    const result=await order(battle,$('invariant-input').value,$('goal-input').value,mode);
-    if(currentToken!==turnToken)return;
+    const result=order(battle,$('invariant-input').value,$('goal-input').value,mode);
     lastAnalysis=result.analysis || null;
     if(result.error) {
       busy=false;feedbackState={type:'error',error:result};render();return;
-    }
-    if(result.reason==='inconclusive') {
-      busy=false;feedbackState={type:'inconclusive',analysis:lastAnalysis};render();return;
     }
     if(result.reason==='no-candidates' || result.cost===0) {
       busy=false;feedbackState={type:'empty'};render();return;
@@ -235,8 +203,7 @@ async function fire(mode) {
     busy=false;impacts=[];render();
     if(battle.finished)showResult();
   } catch(error) {
-    if(currentToken!==turnToken)return;
-    busy=false;feedbackState={type:'exception',error};render();
+    busy=false;feedbackState={type:'exception',error};renderFeedback();renderStats();
   }
 }
 function showResult() {
@@ -305,3 +272,15 @@ document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key==='Enter'&&!document
 applyStaticTranslations(language);
 loadLevel(0);
 renderSound();
+
+// Retire the previously shipped isolation worker without touching other apps.
+if ('serviceWorker' in navigator) {
+  const retiredWorker = new URL('./isolation-worker.js', import.meta.url).href;
+  const appScope = new URL('./', import.meta.url).href;
+  navigator.serviceWorker.getRegistrations().then(registrations => Promise.all(
+    registrations.filter(registration => {
+      const workers = [registration.active, registration.waiting, registration.installing].filter(Boolean);
+      return registration.scope === appScope && workers.length > 0 && workers.every(worker => worker.scriptURL === retiredWorker);
+    }).map(registration => registration.unregister())
+  )).catch(() => {});
+}

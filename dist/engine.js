@@ -1,21 +1,21 @@
-import { verifyWithSMT, DEFAULT_TIMEOUT_MS } from './smt.js';
-
 /**
- * Z3 Int verification has no coordinate bounds. Only the visible firing list
- * is enumerated on the board. Concrete arithmetic uses exact BigInt values.
- * Every proof obligation passes only on UNSAT; UNKNOWN is never a proof.
+ * Danger Close: a dependency-free, finite-state invariant checker.
+ *
+ * The mathematical state space is exactly {-32,...,32}². We enumerate every
+ * state, including states outside the visible board and unreachable states.
+ * A successor outside that space FAILS preservation; it is never clipped.
+ * `valid` means initial + preservation, independently of the goal check.
+ * All three checks run independently, even when the initial check fails.
  */
-export { DEFAULT_TIMEOUT_MS };
-export const TRACE_LIMIT = 256;
-const MAX_BOARD_SIZE = 64; // Display allocation only, never an SMT constraint.
+export const DOMAIN = Object.freeze({ min: -32, max: 32, stateCount: 4225 });
 
 const MAX_SOURCE_LENGTH = 4096;
 const MAX_TOKENS = 1024;
 const MAX_DEPTH = 128;
 
 const ERROR_LABELS = {
-  ko: { arithmetic: '산술 결과', literal: '숫자', invariant: '불변식', goal: '목표', guard: '반복 조건', 'transition-x': 'x 전이식', 'transition-y': 'y 전이식', 'transition-condition': '전이 분기 조건', x: 'x', y: 'y' },
-  en: { arithmetic: 'Arithmetic result', literal: 'Number literal', invariant: 'Invariant', goal: 'Goal', guard: 'Loop guard', 'transition-x': 'x transition', 'transition-y': 'y transition', 'transition-condition': 'Transition condition', x: 'x', y: 'y' },
+  ko: { arithmetic: '산술 결과', literal: '숫자', invariant: '불변식', goal: '목표', guard: '반복 조건', x: 'x', y: 'y' },
+  en: { arithmetic: 'Arithmetic result', literal: 'Number literal', invariant: 'Invariant', goal: 'Goal', guard: 'Loop guard', x: 'x', y: 'y' },
 };
 const errorLabel = (label, language) => Object.hasOwn(ERROR_LABELS[language], label)
   ? ERROR_LABELS[language][label] : String(label);
@@ -23,7 +23,6 @@ const errorLabel = (label, language) => Object.hasOwn(ERROR_LABELS[language], la
 const ERROR_MESSAGES = {
   ko: {
     'integer-range': (p) => `${errorLabel(p.label, 'ko')}: 정확히 표현 가능한 정수 범위 위반.`,
-    'invalid-integer': (p) => `${errorLabel(p.label, 'ko')}: 정수 입력 오류. 큰 수는 10진 문자열 또는 BigInt로 지정하라.`,
     'missing-expression': () => '수식 누락. 사격 조건을 입력하라.',
     'expression-too-long': () => '수식 길이 한도 초과. 조건을 축약하라.',
     'unsupported-character': (p) => `미지원 문자 '${p.character}' 확인. 지원 문법을 대조하라.`,
@@ -38,7 +37,7 @@ const ERROR_MESSAGES = {
     'zero-remainder-divisor': () => '0으로 나누는 나머지 연산 불가. 제수를 확인하라.',
     'unsupported-ast': () => '미지원 수식 구조 확인.',
     'predicate-type': (p) => `${errorLabel(p.label, 'ko')}: 참/거짓을 나타내는 식을 입력하라.`,
-    'invalid-initial': () => '초기 좌표 오류. x와 y에 정확한 정수를 지정하라.',
+    'invalid-initial': (p) => `초기 좌표 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
     'invalid-board-size': (p) => `전장 크기 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
     'missing-step': () => '프로그램의 한 단계 실행 함수 누락.',
     'missing-coordinate': () => '프로그램 실행 결과에 좌표 누락.',
@@ -47,15 +46,10 @@ const ERROR_MESSAGES = {
     'duplicate-unit': () => '배치 중복. 한 좌표에 여러 유닛을 배치할 수 없다.',
     'invalid-command-budget': () => '명령 횟수 오류. 0 이상의 정수가 필요하다.',
     'invalid-mode': () => '사격 방식 오류. single 또는 salvo를 지정하라.',
-    'missing-transition': () => '프로그램 전이 명세 누락. x와 y의 전이식을 지정하라.',
-    'invalid-transition': (p) => `${errorLabel(p.label, 'ko')}: 전이 명세 오류. 정수 식 또는 조건 분기를 지정하라.`,
-    'transition-type': (p) => `${errorLabel(p.label, 'ko')}: 정수 결과를 반환하는 식이 필요하다.`,
-    'invalid-solver-options': () => '검증 설정 오류. 시간·자원 한도는 지원 범위의 양의 정수로 지정하라.',
     'unexpected-error': (p) => p.detail || '알 수 없는 실행 오류. 오류 내용을 확인하라.',
   },
   en: {
     'integer-range': (p) => `${errorLabel(p.label, 'en')}: exact integer range exceeded.`,
-    'invalid-integer': (p) => `${errorLabel(p.label, 'en')}: integer input invalid. Supply large integers as decimal strings or BigInt.`,
     'missing-expression': () => 'Expression missing. Enter firing conditions.',
     'expression-too-long': () => 'Expression length limit exceeded. Shorten the conditions.',
     'unsupported-character': (p) => `Unsupported character '${p.character}'. Check the permitted syntax.`,
@@ -70,7 +64,7 @@ const ERROR_MESSAGES = {
     'zero-remainder-divisor': () => 'Remainder divisor is zero. Set a nonzero divisor.',
     'unsupported-ast': () => 'Unsupported expression structure detected.',
     'predicate-type': (p) => `${errorLabel(p.label, 'en')}: enter a Boolean expression.`,
-    'invalid-initial': () => 'Initial coordinates invalid. Supply exact integers for x and y.',
+    'invalid-initial': (p) => `Initial coordinates invalid. Use integers from ${p.min} to ${p.max}.`,
     'invalid-board-size': (p) => `Board size invalid. Use an integer from ${p.min} to ${p.max}.`,
     'missing-step': () => 'Program transition function missing.',
     'missing-coordinate': () => 'Program transition returned no coordinates.',
@@ -79,10 +73,6 @@ const ERROR_MESSAGES = {
     'duplicate-unit': () => 'Deployment conflict. Assign only one unit to each coordinate.',
     'invalid-command-budget': () => 'Command budget invalid. Use a nonnegative integer.',
     'invalid-mode': () => 'Fire mode invalid. Select single or salvo.',
-    'missing-transition': () => 'Program transition specification missing. Define transitions for x and y.',
-    'invalid-transition': (p) => `${errorLabel(p.label, 'en')}: transition specification invalid. Supply an integer expression or conditional branch.`,
-    'transition-type': (p) => `${errorLabel(p.label, 'en')}: an integer result is required.`,
-    'invalid-solver-options': () => 'Verification settings invalid. Supply supported positive integer time and resource limits.',
     'unexpected-error': (p) => p.detail || 'Unknown execution error. Inspect the error report.',
   },
 };
@@ -123,10 +113,10 @@ function expressionError(code, params = {}, position) {
 }
 
 function integer(value, label = 'arithmetic') {
-  if (typeof value === 'bigint') return value;
-  if (typeof value === 'string' && /^[+-]?\d+$/.test(value)) return BigInt(value);
-  if (typeof value === 'number' && Number.isSafeInteger(value)) return BigInt(value);
-  throw engineError('invalid-integer', { label }, TypeError);
+  if (!Number.isSafeInteger(value)) {
+    throw engineError('integer-range', { label }, RangeError);
+  }
+  return value;
 }
 
 function tokenize(source) {
@@ -213,7 +203,7 @@ export function parseExpression(source) {
         return node;
       }
       if (/^\d+$/.test(token.value)) {
-        return { kind: 'literal', value: BigInt(token.value), valueType: 'integer' };
+        return { kind: 'literal', value: integer(Number(token.value), 'literal'), valueType: 'integer' };
       }
       if (token.value === 'true' || token.value === 'false') {
         return { kind: 'literal', value: token.value === 'true', valueType: 'boolean' };
@@ -231,15 +221,14 @@ export function parseExpression(source) {
 
 /**
  * Evaluate without eval/Function or JavaScript coercion. Integer arithmetic is
- * exact and unbounded. Numeric results are BigInt. `%` is remainder
+ * exact within the safe-integer range; overflow is rejected. `%` is remainder
  * with the dividend's sign. Boolean &&/|| short-circuit, including zero guards.
  */
 export function evaluate(ast, state) {
   function visit(node) {
     if (!node || typeof node !== 'object') throw engineError('invalid-ast', {}, TypeError);
     if (node.kind === 'literal') return node.value;
-    if (node.kind === 'variable') return integer(state?.[node.name], node.name);
-    if (node.kind === 'conditional') return visit(visit(node.condition) ? node.then : node.else);
+    if (node.kind === 'variable') return integer(state[node.name], node.name);
     if (node.kind === 'unary') {
       const value = visit(node.argument);
       if (node.op === '!') return !value;
@@ -256,7 +245,7 @@ export function evaluate(ast, state) {
         case '-': return integer(left - right);
         case '*': return integer(left * right);
         case '%':
-          if (right === 0n) throw engineError('zero-remainder-divisor', {}, RangeError);
+          if (right === 0) throw engineError('zero-remainder-divisor', {}, RangeError);
           return integer(left % right);
         case '==': return left === right;
         case '!=': return left !== right;
@@ -273,9 +262,9 @@ export function evaluate(ast, state) {
 
 const point = ({ x, y }) => ({ x, y });
 const key = ({ x, y }) => `${x},${y}`;
+const inDomain = (s) => s && Number.isInteger(s.x) && Number.isInteger(s.y)
+  && s.x >= DOMAIN.min && s.x <= DOMAIN.max && s.y >= DOMAIN.min && s.y <= DOMAIN.max;
 const onBoard = (s, size) => s.x >= 0 && s.y >= 0 && s.x < size && s.y < size;
-const exactPoint = (s) => ({ x: integer(s?.x, 'x'), y: integer(s?.y, 'y') });
-const serializedPoint = (s) => ({ x: s.x.toString(), y: s.y.toString() });
 
 function predicate(source, label) {
   const ast = parseExpression(source);
@@ -283,154 +272,102 @@ function predicate(source, label) {
   return ast;
 }
 
-function parseTransition(spec, label, depth = 0) {
-  if (typeof spec === 'string') {
-    const ast = parseExpression(spec);
-    if (ast.valueType !== 'integer') throw engineError('transition-type', { label }, TypeError);
-    return ast;
+function validateLevel(level) {
+  if (!level || !inDomain(level.initial)) throw engineError('invalid-initial', { min: DOMAIN.min, max: DOMAIN.max }, TypeError);
+  if (!Number.isInteger(level.size) || level.size < 1 || level.size > DOMAIN.max + 1) {
+    throw engineError('invalid-board-size', { min: 1, max: DOMAIN.max + 1 }, TypeError);
   }
-  if (!spec || typeof spec !== 'object' || depth > MAX_DEPTH
-    || typeof spec.condition !== 'string' || spec.then === undefined || spec.else === undefined) {
-    throw engineError('invalid-transition', { label }, TypeError);
-  }
-  return {
-    kind: 'conditional', valueType: 'integer',
-    condition: predicate(spec.condition, 'transition-condition'),
-    then: parseTransition(spec.then, label, depth + 1),
-    else: parseTransition(spec.else, label, depth + 1),
-  };
+  if (typeof level.step !== 'function') throw engineError('missing-step', {}, TypeError);
 }
 
-function transitionFor(level) {
-  if (!level?.transition || level.transition.x === undefined || level.transition.y === undefined) {
-    throw engineError('missing-transition', {}, TypeError);
-  }
-  return {
-    x: parseTransition(level.transition.x, 'transition-x'),
-    y: parseTransition(level.transition.y, 'transition-y'),
-  };
+function successor(level, before) {
+  const after = level.step(point(before));
+  if (!after || typeof after !== 'object') throw engineError('missing-coordinate', {}, TypeError);
+  return point(after);
 }
 
-function compileLevel(level) {
-  let initial;
-  try { initial = exactPoint(level?.initial); }
-  catch { throw engineError('invalid-initial', {}, TypeError); }
-  if (!Number.isSafeInteger(level.size) || level.size < 1 || level.size > MAX_BOARD_SIZE) {
-    throw engineError('invalid-board-size', { min: 1, max: MAX_BOARD_SIZE }, TypeError);
-  }
-  return { initial, guard: predicate(level.guardSource, 'guard'), transition: transitionFor(level) };
-}
-
-function transitionValue(transition, state) {
-  // Both right-hand sides read the same old state. Never call level.step.
-  return { x: evaluate(transition.x, state), y: evaluate(transition.y, state) };
-}
-
-/** Exact, simultaneous transition execution. Returns {x: BigInt, y: BigInt}. */
-export function executeTransition(level, state) {
-  return transitionValue(transitionFor(level), exactPoint(state));
-}
-
-function traceProgram(program) {
-  const trace = [serializedPoint(program.initial)];
+function traceProgram(level, guard) {
+  const trace = [point(level.initial)];
   const visited = new Set();
-  let current = program.initial;
-  try {
-    for (let step = 0; step < TRACE_LIMIT; step++) {
-      if (!evaluate(program.guard, current)) return { trace, traceStatus: 'terminated' };
-      if (visited.has(key(current))) return { trace, traceStatus: 'cycle' };
-      visited.add(key(current));
-      current = transitionValue(program.transition, current);
-      const displayed = serializedPoint(current);
-      // A visualization-only budget prevents explosive traces from allocating
-      // enormous strings. This condition never enters any proof obligation.
-      if (displayed.x.length > 4096 || displayed.y.length > 4096) {
-        return { trace, traceStatus: 'limited', traceReason: 'display-size' };
-      }
-      trace.push(displayed);
-    }
-    return { trace, traceStatus: 'limited', traceReason: 'step-limit' };
-  } catch (error) {
-    return { trace, traceStatus: 'undefined', traceError: errorDetails(error) };
+  let current = point(level.initial);
+  while (true) {
+    if (!inDomain(current)) return { trace, traceStatus: 'outside-domain' };
+    if (!evaluate(guard, current)) return { trace, traceStatus: 'terminated' };
+    if (visited.has(key(current))) return { trace, traceStatus: 'cycle' };
+    visited.add(key(current));
+    current = successor(level, current);
+    trace.push(point(current));
   }
 }
-
-function solverOptions(options) {
-  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  if (!options || typeof options !== 'object'
-    || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2147483647
-    || (options.rlimit !== undefined && (!Number.isSafeInteger(options.rlimit) || options.rlimit < 1 || options.rlimit > 4294967295))
-    || (options.solverFactory !== undefined && typeof options.solverFactory !== 'function')) {
-    throw engineError('invalid-solver-options', {}, TypeError);
-  }
-  return { ...options, timeoutMs };
-}
-
-function boardCandidates(invariant, guard, size) {
-  const candidates = [];
-  for (let x = 0; x < size; x++) for (let y = 0; y < size; y++) {
-    try {
-      if (evaluate(invariant, { x, y }) && !evaluate(guard, { x, y })) candidates.push({ x, y });
-    } catch (error) {
-      // Undefined cells are not firing candidates. The SMT definedness queries
-      // independently report them and prevent firing; this is no proof filter.
-      if (error?.errorCode !== 'zero-remainder-divisor') throw error;
-    }
-  }
-  return candidates;
-}
-
-const pendingCheck = (reason = 'not-run') => ({ pass: null, status: 'unknown', reason });
 
 /**
- * Prove initialization, preservation and the exit goal over unbounded Int.
- * SAT witnesses are exact decimal strings, including off-board/unreachable
- * states. The actual trace and board enumeration are visualizations only.
- * options: timeoutMs (default 2000 per obligation), optional rlimit, and an
- * optional solverFactory(ctx, phase) for deterministic fault-injection tests.
+ * S = I && !guard is checked over the WHOLE domain. Only candidates are
+ * projected onto the visible board. A goal witness may therefore be off-board.
+ * A preservation witness may be unreachable from the fixed initial state.
+ * trace is one actual execution; it is a visualization, never proof evidence.
  */
-export async function analyze(source, goalSource, level, options = {}) {
+export function analyze(source, goalSource, level) {
   const result = {
     valid: false,
-    initial: pendingCheck(),
-    preservation: pendingCheck(),
-    goal: pendingCheck(),
+    initial: { pass: null },
+    preservation: { pass: null },
+    goal: { pass: null },
     candidates: [],
     trace: [],
-    verification: 'z3-int',
+    exitStateCount: 0,
+    checkedStateCount: 0,
   };
   try {
-    const program = compileLevel(level);
-    const settings = solverOptions(options);
+    validateLevel(level);
     const invariant = predicate(source, 'invariant');
     const goal = predicate(goalSource, 'goal');
-    Object.assign(result, traceProgram(program));
-    result.candidates = boardCandidates(invariant, program.guard, level.size);
-    Object.assign(result, await verifyWithSMT(program, invariant, goal, settings));
-    result.valid = result.initial.pass === true && result.preservation.pass === true;
+    const guard = predicate(level.guardSource, 'guard');
+    Object.assign(result, traceProgram(level, guard));
+    result.initial = evaluate(invariant, level.initial)
+      ? { pass: true } : { pass: false, before: point(level.initial) };
+    result.preservation = { pass: true };
+    result.goal = { pass: true };
+    for (let x = DOMAIN.min; x <= DOMAIN.max; x++) {
+      for (let y = DOMAIN.min; y <= DOMAIN.max; y++) {
+        const before = { x, y };
+        result.checkedStateCount++;
+        if (!evaluate(invariant, before)) continue;
+        if (evaluate(guard, before)) {
+          const after = successor(level, before);
+          const outsideDomain = !inDomain(after);
+          if (outsideDomain || !evaluate(invariant, after)) {
+            if (result.preservation.pass) {
+              result.preservation = { pass: false, before, after, outsideDomain };
+            }
+          }
+        } else {
+          result.exitStateCount++;
+          if (onBoard(before, level.size)) result.candidates.push(before);
+          if (!evaluate(goal, before) && result.goal.pass) result.goal = { pass: false, before };
+        }
+      }
+    }
+    result.valid = result.initial.pass && result.preservation.pass;
   } catch (error) {
     result.valid = false;
-    result.initial = pendingCheck('error');
-    result.preservation = pendingCheck('error');
-    result.goal = pendingCheck('error');
+    // An interrupted enumeration is not a completed proof. Invalidate every
+    // check so consumers cannot mistake optimistic/partial flags for success.
+    result.initial = { pass: null };
+    result.preservation = { pass: null };
+    result.goal = { pass: null };
     Object.assign(result, errorDetails(error));
   }
-  result.inconclusive = [result.initial, result.preservation, result.goal].some((check) => check.pass === null);
   return result;
 }
 
 function copyUnits(units, size, occupied) {
   if (!Array.isArray(units)) throw engineError('invalid-layout', {}, TypeError);
   return units.map((unit) => {
-    let exact;
-    try { exact = exactPoint(unit); }
-    catch { throw engineError('offboard-unit', {}, TypeError); }
-    if (!onBoard(exact, size)) throw engineError('offboard-unit', {}, TypeError);
-    const cell = { x: Number(exact.x), y: Number(exact.y) };
-    const location = key(cell);
+    if (!inDomain(unit) || !onBoard(unit, size)) throw engineError('offboard-unit', {}, TypeError);
+    const location = key(unit);
     if (occupied.has(location)) throw engineError('duplicate-unit', {}, TypeError);
     occupied.add(location);
-    return cell;
+    return point(unit);
   });
 }
 
@@ -443,14 +380,15 @@ function updateBattleStatus(battle) {
 
 /** Initial arrays are preserved in battle.level; battle.enemies/allies are alive. */
 export function createBattle(level) {
-  const program = compileLevel(level);
+  validateLevel(level);
+  predicate(level.guardSource, 'guard');
   const budget = level.commands ?? level.budget ?? 6;
   if (!Number.isSafeInteger(budget) || budget < 0) throw engineError('invalid-command-budget', {}, TypeError);
   const occupied = new Set();
   const enemies = copyUnits(level.enemies ?? [], level.size, occupied);
   const allies = copyUnits(level.allies ?? [], level.size, occupied);
   return updateBattleStatus({
-    level: { ...level, initial: serializedPoint(program.initial), enemies: enemies.map(point), allies: allies.map(point) },
+    level: { ...level, initial: point(level.initial), enemies: enemies.map(point), allies: allies.map(point) },
     budget,
     remaining: budget,
     enemies,
@@ -463,21 +401,19 @@ export function createBattle(level) {
 
 /**
  * Return a new battle, never mutate the argument. An order costs ONE command,
- * including a disproved invariant and a full salvo. Input/solver/undefined
- * errors cost nothing. ANY inconclusive check, including the goal, blocks fire
- * without cost even if a different check has a logical counterexample. Once
- * all checks are conclusive, a failed init/preservation costs one command.
- * A SAT goal failure does
- * not prevent firing. Historical hits are only removed from
+ * including a failed invariant and a full salvo. Syntax/type/arithmetic errors
+ * and an empty unhit candidate set cost nothing. Initial/preservation failure
+ * is checked BEFORE empty candidates and therefore always costs one command.
+ * Goal failure never prevents firing. Historical hits are only removed from
  * the firing list; they are never removed from the proof region S.
  */
-export async function order(battle, invariantSource, goalSource, mode = 'single', options = {}) {
+export function order(battle, invariantSource, goalSource, mode = 'single') {
   const outcome = (fields) => ({ battle, analysis: null, shots: [], dud: false, cost: 0, ...fields });
   if (mode !== 'single' && mode !== 'salvo') {
     return outcome({ ...errorDetails(engineError('invalid-mode', { mode })), reason: 'invalid-mode' });
   }
   if (battle.finished) return outcome({ reason: 'finished' });
-  const analysis = await analyze(invariantSource, goalSource, battle.level, options);
+  const analysis = analyze(invariantSource, goalSource, battle.level);
   if (analysis.error) return outcome({
     analysis,
     error: analysis.error,
@@ -485,17 +421,13 @@ export async function order(battle, invariantSource, goalSource, mode = 'single'
     errorParams: { ...analysis.errorParams },
     reason: 'syntax-error',
   });
-  const checks = [analysis.initial, analysis.preservation, analysis.goal];
-  if (checks.some((check) => check.pass === null)) {
-    return outcome({ analysis, reason: 'inconclusive' });
-  }
   const next = {
     ...battle,
     enemies: battle.enemies.map(point),
     allies: battle.allies.map(point),
     hit: battle.hit.map((hit) => ({ ...hit })),
   };
-  if (analysis.initial.pass === false || analysis.preservation.pass === false) {
+  if (!analysis.valid) {
     next.remaining--;
     return outcome({ battle: updateBattleStatus(next), analysis, dud: true, cost: 1, reason: 'invalid-invariant' });
   }

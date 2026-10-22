@@ -1,2 +1,0 @@
-# Preserve generated vendor bytes and their recorded SHA-256 digests.
-dist/vendor/* -text

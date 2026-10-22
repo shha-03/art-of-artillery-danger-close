@@ -216,9 +216,6 @@ input[readonly] { cursor: default; }
 .check-item.fail .check-icon { color: #f1c0a5; border-color: #b16c48; background: #663c29; }
 .check-item.fail .check-title { color: #e6a57f; }
 .check-item.pending .check-icon { opacity: .5; }
-.check-item.unknown { background: #302d20; border-color: #8c7846; }
-.check-item.unknown .check-icon { color: #ecd699; border-color: #ac965e; }
-.check-item.unknown .check-title { color: #e2d09e; }
 .command-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .fire-button { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 52px; padding: 12px 13px; border: 1px solid #576047; border-radius: 2px; background: #303a29; font-size: 13px; font-weight: 700; transition: background-color .15s, border-color .15s, transform .15s; }
 .fire-button.single { color: #dbe0ce; }
