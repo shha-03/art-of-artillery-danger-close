@@ -13,22 +13,117 @@ const MAX_SOURCE_LENGTH = 4096;
 const MAX_TOKENS = 1024;
 const MAX_DEPTH = 128;
 
-function expressionError(message, position) {
-  return new SyntaxError(`${message}${position === undefined ? '' : ` (위치 ${position + 1})`}`);
+const ERROR_LABELS = {
+  ko: { arithmetic: '산술 결과', literal: '숫자', invariant: '불변식', goal: '목표', guard: '반복 조건', x: 'x', y: 'y' },
+  en: { arithmetic: 'Arithmetic result', literal: 'Number literal', invariant: 'Invariant', goal: 'Goal', guard: 'Loop guard', x: 'x', y: 'y' },
+};
+const errorLabel = (label, language) => Object.hasOwn(ERROR_LABELS[language], label)
+  ? ERROR_LABELS[language][label] : String(label);
+
+const ERROR_MESSAGES = {
+  ko: {
+    'integer-range': (p) => `${errorLabel(p.label, 'ko')}: 정확히 표현 가능한 정수 범위 위반.`,
+    'missing-expression': () => '수식 누락. 사격 조건을 입력하라.',
+    'expression-too-long': () => '수식 길이 한도 초과. 조건을 축약하라.',
+    'unsupported-character': (p) => `미지원 문자 '${p.character}' 확인. 지원 문법을 대조하라.`,
+    'too-many-tokens': () => '수식 항목 한도 초과. 조건을 축약하라.',
+    'operand-type': (p) => `'${p.token}'의 입력 형식 불일치. ${p.expected === 'integer' ? '정수' : '참/거짓'} 식을 사용하라.`,
+    'comparison-type': () => '비교 대상의 형식 불일치. 같은 종류의 값끼리 비교하라.',
+    'nesting-too-deep': () => '중첩 깊이 한도 초과. 괄호와 단항 연산자를 줄여라.',
+    'missing-close-parenthesis': () => "닫는 괄호 ')' 누락. 수식을 보완하라.",
+    'expected-operand': (p) => `'${p.token}' 위치에 x, y, 숫자 또는 괄호 식을 입력하라.`,
+    'unexpected-token': (p) => `잘못 배치된 '${p.token}' 확인. 수식 구성을 점검하라.`,
+    'invalid-ast': () => '수식 구조 오류.',
+    'zero-remainder-divisor': () => '0으로 나누는 나머지 연산 불가. 제수를 확인하라.',
+    'unsupported-ast': () => '미지원 수식 구조 확인.',
+    'predicate-type': (p) => `${errorLabel(p.label, 'ko')}: 참/거짓을 나타내는 식을 입력하라.`,
+    'invalid-initial': (p) => `초기 좌표 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
+    'invalid-board-size': (p) => `전장 크기 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
+    'missing-step': () => '프로그램의 한 단계 실행 함수 누락.',
+    'missing-coordinate': () => '프로그램 실행 결과에 좌표 누락.',
+    'invalid-layout': () => '배치 형식 오류. 좌표 배열이 필요하다.',
+    'offboard-unit': () => '배치 좌표 오류. 전장 안의 정수 좌표가 필요하다.',
+    'duplicate-unit': () => '배치 중복. 한 좌표에 여러 유닛을 배치할 수 없다.',
+    'invalid-command-budget': () => '명령 횟수 오류. 0 이상의 정수가 필요하다.',
+    'invalid-mode': () => '사격 방식 오류. single 또는 salvo를 지정하라.',
+    'unexpected-error': (p) => p.detail || '알 수 없는 실행 오류. 오류 내용을 확인하라.',
+  },
+  en: {
+    'integer-range': (p) => `${errorLabel(p.label, 'en')}: exact integer range exceeded.`,
+    'missing-expression': () => 'Expression missing. Enter firing conditions.',
+    'expression-too-long': () => 'Expression length limit exceeded. Shorten the conditions.',
+    'unsupported-character': (p) => `Unsupported character '${p.character}'. Check the permitted syntax.`,
+    'too-many-tokens': () => 'Expression token limit exceeded. Shorten the conditions.',
+    'operand-type': (p) => `Input type mismatch at '${p.token}'. Use ${p.expected === 'integer' ? 'an integer' : 'a Boolean'} expression.`,
+    'comparison-type': () => 'Comparison type mismatch. Compare values of the same type.',
+    'nesting-too-deep': () => 'Nesting limit exceeded. Reduce parentheses and unary operators.',
+    'missing-close-parenthesis': () => "Closing parenthesis ')' missing. Complete the expression.",
+    'expected-operand': (p) => `Expected an operand at '${p.token}'. Enter x, y, a number, or a parenthesized expression.`,
+    'unexpected-token': (p) => `Unexpected token '${p.token}'. Check the expression structure.`,
+    'invalid-ast': () => 'Expression structure invalid.',
+    'zero-remainder-divisor': () => 'Remainder divisor is zero. Set a nonzero divisor.',
+    'unsupported-ast': () => 'Unsupported expression structure detected.',
+    'predicate-type': (p) => `${errorLabel(p.label, 'en')}: enter a Boolean expression.`,
+    'invalid-initial': (p) => `Initial coordinates invalid. Use integers from ${p.min} to ${p.max}.`,
+    'invalid-board-size': (p) => `Board size invalid. Use an integer from ${p.min} to ${p.max}.`,
+    'missing-step': () => 'Program transition function missing.',
+    'missing-coordinate': () => 'Program transition returned no coordinates.',
+    'invalid-layout': () => 'Deployment format invalid. Supply an array of coordinates.',
+    'offboard-unit': () => 'Deployment coordinates invalid. Use integer coordinates inside the board.',
+    'duplicate-unit': () => 'Deployment conflict. Assign only one unit to each coordinate.',
+    'invalid-command-budget': () => 'Command budget invalid. Use a nonnegative integer.',
+    'invalid-mode': () => 'Fire mode invalid. Select single or salvo.',
+    'unexpected-error': (p) => p.detail || 'Unknown execution error. Inspect the error report.',
+  },
+};
+
+/**
+ * Format an engine Error or an analyze/order result from its stable metadata.
+ * errorParams.position is zero-based; displayed positions are one-based.
+ * Known labels are semantic keys, never Korean text. Unknown external errors
+ * retain their original diagnostic rather than guessing a translation.
+ */
+export function formatEngineError(value, language = 'ko') {
+  const locale = language === 'en' ? 'en' : 'ko';
+  const code = value?.errorCode;
+  const params = value?.errorParams ?? {};
+  if (!Object.hasOwn(ERROR_MESSAGES[locale], code)) {
+    return value?.error ?? value?.message ?? (value == null ? ERROR_MESSAGES[locale]['unexpected-error']({}) : String(value));
+  }
+  const message = ERROR_MESSAGES[locale][code](params);
+  return `${message}${Number.isInteger(params.position) ? ` (${locale === 'en' ? 'position' : '위치'} ${params.position + 1})` : ''}`;
 }
 
-function integer(value, description = '산술 결과') {
+function engineError(code, params = {}, ErrorType = Error) {
+  const metadata = { errorCode: code, errorParams: { ...params } };
+  return Object.assign(new ErrorType(formatEngineError(metadata)), metadata);
+}
+
+function errorDetails(value) {
+  const message = value instanceof Error ? value.message : String(value);
+  return {
+    error: message,
+    errorCode: value?.errorCode ?? 'unexpected-error',
+    errorParams: value?.errorParams ? { ...value.errorParams } : { detail: message },
+  };
+}
+
+function expressionError(code, params = {}, position) {
+  return engineError(code, { ...params, ...(position === undefined ? {} : { position }) }, SyntaxError);
+}
+
+function integer(value, label = 'arithmetic') {
   if (!Number.isSafeInteger(value)) {
-    throw new RangeError(`${description}: 정확히 표현 가능한 정수 범위 위반.`);
+    throw engineError('integer-range', { label }, RangeError);
   }
   return value;
 }
 
 function tokenize(source) {
   if (typeof source !== 'string' || !source.trim()) {
-    throw expressionError('수식 누락. 사격 조건을 입력하라.');
+    throw expressionError('missing-expression');
   }
-  if (source.length > MAX_SOURCE_LENGTH) throw expressionError('수식 길이 한도 초과. 조건을 축약하라.');
+  if (source.length > MAX_SOURCE_LENGTH) throw expressionError('expression-too-long', { limit: MAX_SOURCE_LENGTH });
   const tokens = [];
   let position = 0;
   while (position < source.length) {
@@ -36,10 +131,10 @@ function tokenize(source) {
     const whitespace = /^\s+/.exec(rest);
     if (whitespace) { position += whitespace[0].length; continue; }
     const match = /^(?:\d+|[A-Za-z_][A-Za-z_0-9]*|&&|\|\||==|!=|<=|>=|[+*%<>()!\-])/.exec(rest);
-    if (!match) throw expressionError(`미지원 문자 '${source[position]}' 확인. 지원 문법을 대조하라.`, position);
+    if (!match) throw expressionError('unsupported-character', { character: source[position] }, position);
     tokens.push({ value: match[0], position });
     position += match[0].length;
-    if (tokens.length > MAX_TOKENS) throw expressionError('수식 항목 한도 초과. 조건을 축약하라.');
+    if (tokens.length > MAX_TOKENS) throw expressionError('too-many-tokens', { limit: MAX_TOKENS });
   }
   tokens.push({ value: '<end>', position: source.length });
   return tokens;
@@ -54,7 +149,7 @@ export function parseExpression(source) {
   const take = () => tokens[index++];
   const needType = (node, expected, token) => {
     if (node.valueType !== expected) {
-      throw expressionError(`'${token.value}'의 입력 형식 불일치. ${expected === 'integer' ? '정수' : '참/거짓'} 식을 사용하라.`, token.position);
+      throw expressionError('operand-type', { token: token.value, expected }, token.position);
     }
   };
   function binary(left, token, right) {
@@ -66,7 +161,7 @@ export function parseExpression(source) {
       valueType = 'boolean';
     } else if (op === '==' || op === '!=') {
       if (left.valueType !== right.valueType) {
-        throw expressionError('비교 대상의 형식 불일치. 같은 종류의 값끼리 비교하라.', token.position);
+        throw expressionError('comparison-type', {}, token.position);
       }
       valueType = 'boolean';
     } else {
@@ -91,7 +186,7 @@ export function parseExpression(source) {
   const parseAdd = () => chain(parseMultiply, ['+', '-']);
   const parseMultiply = () => chain(parseUnary, ['*', '%']);
   function parseUnary() {
-    if (++depth > MAX_DEPTH) throw expressionError('중첩 깊이 한도 초과. 괄호와 단항 연산자를 줄여라.', peek().position);
+    if (++depth > MAX_DEPTH) throw expressionError('nesting-too-deep', { limit: MAX_DEPTH }, peek().position);
     try {
       if (['!', '-', '+'].includes(peek().value)) {
         const token = take();
@@ -103,12 +198,12 @@ export function parseExpression(source) {
       const token = take();
       if (token.value === '(') {
         const node = parseOr();
-        if (peek().value !== ')') throw expressionError("닫는 괄호 ')' 누락. 수식을 보완하라.", peek().position);
+        if (peek().value !== ')') throw expressionError('missing-close-parenthesis', {}, peek().position);
         take();
         return node;
       }
       if (/^\d+$/.test(token.value)) {
-        return { kind: 'literal', value: integer(Number(token.value), '숫자'), valueType: 'integer' };
+        return { kind: 'literal', value: integer(Number(token.value), 'literal'), valueType: 'integer' };
       }
       if (token.value === 'true' || token.value === 'false') {
         return { kind: 'literal', value: token.value === 'true', valueType: 'boolean' };
@@ -116,11 +211,11 @@ export function parseExpression(source) {
       if (token.value === 'x' || token.value === 'y') {
         return { kind: 'variable', name: token.value, valueType: 'integer' };
       }
-      throw expressionError(`'${token.value}' 위치에 x, y, 숫자 또는 괄호 식을 입력하라.`, token.position);
+      throw expressionError('expected-operand', { token: token.value }, token.position);
     } finally { depth--; }
   }
   const ast = parseOr();
-  if (peek().value !== '<end>') throw expressionError(`잘못 배치된 '${peek().value}' 확인. 수식 구성을 점검하라.`, peek().position);
+  if (peek().value !== '<end>') throw expressionError('unexpected-token', { token: peek().value }, peek().position);
   return ast;
 }
 
@@ -131,7 +226,7 @@ export function parseExpression(source) {
  */
 export function evaluate(ast, state) {
   function visit(node) {
-    if (!node || typeof node !== 'object') throw new TypeError('수식 구조 오류.');
+    if (!node || typeof node !== 'object') throw engineError('invalid-ast', {}, TypeError);
     if (node.kind === 'literal') return node.value;
     if (node.kind === 'variable') return integer(state[node.name], node.name);
     if (node.kind === 'unary') {
@@ -150,7 +245,7 @@ export function evaluate(ast, state) {
         case '-': return integer(left - right);
         case '*': return integer(left * right);
         case '%':
-          if (right === 0) throw new RangeError('0으로 나누는 나머지 연산 불가. 제수를 확인하라.');
+          if (right === 0) throw engineError('zero-remainder-divisor', {}, RangeError);
           return integer(left % right);
         case '==': return left === right;
         case '!=': return left !== right;
@@ -160,7 +255,7 @@ export function evaluate(ast, state) {
         case '>=': return left >= right;
       }
     }
-    throw new TypeError('미지원 수식 구조 확인.');
+    throw engineError('unsupported-ast', {}, TypeError);
   }
   return visit(ast);
 }
@@ -173,21 +268,21 @@ const onBoard = (s, size) => s.x >= 0 && s.y >= 0 && s.x < size && s.y < size;
 
 function predicate(source, label) {
   const ast = parseExpression(source);
-  if (ast.valueType !== 'boolean') throw expressionError(`${label}: 참/거짓을 나타내는 식을 입력하라.`);
+  if (ast.valueType !== 'boolean') throw expressionError('predicate-type', { label });
   return ast;
 }
 
 function validateLevel(level) {
-  if (!level || !inDomain(level.initial)) throw new TypeError('초기 좌표 오류. 허용 범위는 -32부터 32 사이의 정수이다.');
+  if (!level || !inDomain(level.initial)) throw engineError('invalid-initial', { min: DOMAIN.min, max: DOMAIN.max }, TypeError);
   if (!Number.isInteger(level.size) || level.size < 1 || level.size > DOMAIN.max + 1) {
-    throw new TypeError('전장 크기 오류. 허용 범위는 1부터 33 사이의 정수이다.');
+    throw engineError('invalid-board-size', { min: 1, max: DOMAIN.max + 1 }, TypeError);
   }
-  if (typeof level.step !== 'function') throw new TypeError('프로그램의 한 단계 실행 함수 누락.');
+  if (typeof level.step !== 'function') throw engineError('missing-step', {}, TypeError);
 }
 
 function successor(level, before) {
   const after = level.step(point(before));
-  if (!after || typeof after !== 'object') throw new TypeError('프로그램 실행 결과에 좌표 누락.');
+  if (!after || typeof after !== 'object') throw engineError('missing-coordinate', {}, TypeError);
   return point(after);
 }
 
@@ -224,9 +319,9 @@ export function analyze(source, goalSource, level) {
   };
   try {
     validateLevel(level);
-    const invariant = predicate(source, '불변식');
-    const goal = predicate(goalSource, '목표');
-    const guard = predicate(level.guardSource, '반복 조건');
+    const invariant = predicate(source, 'invariant');
+    const goal = predicate(goalSource, 'goal');
+    const guard = predicate(level.guardSource, 'guard');
     Object.assign(result, traceProgram(level, guard));
     result.initial = evaluate(invariant, level.initial)
       ? { pass: true } : { pass: false, before: point(level.initial) };
@@ -260,17 +355,17 @@ export function analyze(source, goalSource, level) {
     result.initial = { pass: null };
     result.preservation = { pass: null };
     result.goal = { pass: null };
-    result.error = error instanceof Error ? error.message : String(error);
+    Object.assign(result, errorDetails(error));
   }
   return result;
 }
 
 function copyUnits(units, size, occupied) {
-  if (!Array.isArray(units)) throw new TypeError('배치 형식 오류. 좌표 배열이 필요하다.');
+  if (!Array.isArray(units)) throw engineError('invalid-layout', {}, TypeError);
   return units.map((unit) => {
-    if (!inDomain(unit) || !onBoard(unit, size)) throw new TypeError('배치 좌표 오류. 전장 안의 정수 좌표가 필요하다.');
+    if (!inDomain(unit) || !onBoard(unit, size)) throw engineError('offboard-unit', {}, TypeError);
     const location = key(unit);
-    if (occupied.has(location)) throw new TypeError('배치 중복. 한 좌표에 여러 유닛을 배치할 수 없다.');
+    if (occupied.has(location)) throw engineError('duplicate-unit', {}, TypeError);
     occupied.add(location);
     return point(unit);
   });
@@ -286,9 +381,9 @@ function updateBattleStatus(battle) {
 /** Initial arrays are preserved in battle.level; battle.enemies/allies are alive. */
 export function createBattle(level) {
   validateLevel(level);
-  predicate(level.guardSource, '반복 조건');
+  predicate(level.guardSource, 'guard');
   const budget = level.commands ?? level.budget ?? 6;
-  if (!Number.isSafeInteger(budget) || budget < 0) throw new TypeError('명령 횟수 오류. 0 이상의 정수가 필요하다.');
+  if (!Number.isSafeInteger(budget) || budget < 0) throw engineError('invalid-command-budget', {}, TypeError);
   const occupied = new Set();
   const enemies = copyUnits(level.enemies ?? [], level.size, occupied);
   const allies = copyUnits(level.allies ?? [], level.size, occupied);
@@ -315,11 +410,17 @@ export function createBattle(level) {
 export function order(battle, invariantSource, goalSource, mode = 'single') {
   const outcome = (fields) => ({ battle, analysis: null, shots: [], dud: false, cost: 0, ...fields });
   if (mode !== 'single' && mode !== 'salvo') {
-    return outcome({ error: '사격 방식 오류. single 또는 salvo를 지정하라.', reason: 'invalid-mode' });
+    return outcome({ ...errorDetails(engineError('invalid-mode', { mode })), reason: 'invalid-mode' });
   }
   if (battle.finished) return outcome({ reason: 'finished' });
   const analysis = analyze(invariantSource, goalSource, battle.level);
-  if (analysis.error) return outcome({ analysis, error: analysis.error, reason: 'syntax-error' });
+  if (analysis.error) return outcome({
+    analysis,
+    error: analysis.error,
+    errorCode: analysis.errorCode,
+    errorParams: { ...analysis.errorParams },
+    reason: 'syntax-error',
+  });
   const next = {
     ...battle,
     enemies: battle.enemies.map(point),

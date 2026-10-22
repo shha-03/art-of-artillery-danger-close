@@ -18,6 +18,15 @@ export const LEVELS = [
       '포격 후보는 x >= 4인 상태로 제한된다. 후방 아군을 제외하도록 x의 상한을 제한하라.',
       '검증 해법: x >= 0 && x <= 6 && y == x',
     ],
+    en: {
+      name: 'Diagonal Bridgehead',
+      brief: 'x and y advance together. Identify the three enemy positions on the diagonal. Set the firing boundary to exclude the friendly unit beyond them.',
+      hints: [
+        'x and y increase by the same amount on every iteration. Express their constant difference in the invariant.',
+        'Only states with x >= 4 are eligible for fire. Cap x to exclude the friendly unit beyond the targets.',
+        'Verified solution: x >= 0 && x <= 6 && y == x',
+      ],
+    },
     solution: 'x >= 0 && x <= 6 && y == x',
     goalSolution: 'x >= 4 && x <= 6 && y == x',
   },
@@ -40,6 +49,15 @@ export const LEVELS = [
       'y를 초기값으로 고정해 상하 아군을 제외하라. 우측 끝 아군을 제외하도록 x의 상한도 제한하라.',
       '검증 해법: x >= 1 && x <= 7 && y == 3',
     ],
+    en: {
+      name: 'Canyon Convoy',
+      brief: 'Convoy movement confirmed along the x axis. Identify the fixed value of y. Restrict the firing area to the enemy positions between friendly units.',
+      hints: [
+        'Check whether the loop body updates y.',
+        'Fix y at its initial value to exclude friendly units above and below. Cap x to exclude the friendly unit at the far right.',
+        'Verified solution: x >= 1 && x <= 7 && y == 3',
+      ],
+    },
     solution: 'x >= 1 && x <= 7 && y == 3',
     goalSolution: 'x >= 5 && x <= 7 && y == 3',
   },
@@ -62,6 +80,15 @@ export const LEVELS = [
       '반복 전후 y - 2 * x 값은 일정하다. 띠 모양 사격 범위를 등식 하나로 좁혀라.',
       '검증 해법: x >= 0 && x <= 4 && y == 2 * x',
     ],
+    en: {
+      name: 'Double Ascent',
+      brief: 'For every one-unit increase in x, y increases by two. Enforce this relation to exclude friendly units and neutral cells beside the route.',
+      hints: [
+        'Movement confirmed: (0, 0) → (1, 2) → (2, 4). Write an equation that holds at all three positions.',
+        'y - 2 * x remains constant across each iteration. Narrow the firing area to the line defined by that equation.',
+        'Verified solution: x >= 0 && x <= 4 && y == 2 * x',
+      ],
+    },
     solution: 'x >= 0 && x <= 4 && y == 2 * x',
     goalSolution: 'x >= 2 && x <= 4 && y == 2 * x',
   },
@@ -84,6 +111,15 @@ export const LEVELS = [
       '상승 구간은 y - x = 3, 하강 구간은 x + y = 7이다. 두 조건을 ||로 결합하라.',
       '검증 해법: x >= 0 && x <= 6 && ((x <= 2 && y == x + 3) || (x >= 2 && y == 7 - x))',
     ],
+    en: {
+      name: 'Beyond the Ridge',
+      brief: 'Direction change confirmed at x = 2. Define separate conditions for the ascent and descent. Combine them into one invariant.',
+      hints: [
+        'y increases when x < 2 and decreases when x >= 2. Set the conditions so both sections connect at (2, 5).',
+        'On the ascent, y - x = 3. On the descent, x + y = 7. Combine the two cases with ||.',
+        'Verified solution: x >= 0 && x <= 6 && ((x <= 2 && y == x + 3) || (x >= 2 && y == 7 - x))',
+      ],
+    },
     solution: 'x >= 0 && x <= 6 && ((x <= 2 && y == x + 3) || (x >= 2 && y == 7 - x))',
     goalSolution: 'x >= 4 && x <= 6 && y == 7 - x',
   },

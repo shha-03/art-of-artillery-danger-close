@@ -2,6 +2,12 @@
 
 불변식을 작성해 공격 영역을 정하는 2D 포격 퍼즐입니다. 포대장은 고정된 프로그램을 관찰하고, 아군을 피하면서 여러 적을 한 번의 일제사로 제거할 수 있는 조건을 찾습니다.
 
+## 언어 / Language
+
+화면의 한국어 / English 스위치로 언어를 전환할 수 있습니다. 선택한 언어는 브라우저에 저장됩니다. 전투 도중 전환해도 현재 작전, 입력한 조건, 포격 결과와 남은 명령 등 진행 상태는 유지됩니다.
+
+Use the 한국어 / English switch to change language. Your preference is saved in this browser. Switching during combat preserves the current mission, entered conditions, firing results, and remaining commands.
+
 ## 실행
 
 프로젝트 디렉터리에서 다음 명령을 실행한 뒤, 터미널에 출력된 주소를 브라우저로 여세요.
@@ -10,10 +16,10 @@
 node server.mjs
 ```
 
-검증 엔진의 자동 테스트는 다음과 같이 실행합니다.
+검증 엔진과 언어 지원의 자동 테스트는 다음과 같이 실행합니다.
 
 ```sh
-node --test engine.test.mjs
+node --test engine.test.mjs i18n.test.mjs
 ```
 
 게임 화면과 레벨 데이터는 `dist/`에 있습니다. 별도의 빌드 없이 정적 웹 서버로 제공할 수 있습니다.

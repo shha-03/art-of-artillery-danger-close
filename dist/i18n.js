@@ -1,0 +1,117 @@
+export const LANGUAGE_STORAGE_KEY = 'danger-close-language-v1';
+
+// The saved choice takes priority. Otherwise use the first supported browser language.
+export function resolveLanguage(saved, preferred = []) {
+  if (saved === 'ko' || saved === 'en') return saved;
+  for (const tag of preferred) {
+    const base = String(tag).toLowerCase().split('-')[0];
+    if (base === 'ko' || base === 'en') return base;
+  }
+  return 'ko';
+}
+
+export const COPY = {
+  ko: {
+    enemy: '적군', friendly: '아군', neutral: '중립', hit: '포격 완료',
+    cellLabel: '좌표 {x}, {y}: {unit}{objective}', objectiveSuffix: ', 목표 영역',
+    cellTitle: '({x}, {y}) {unit} · 클릭해서 목표 선택',
+    coordinatePrompt: '목표 좌표를 지정하라',
+    mapCleared: '작전 완료 · 적 전력 격파', mapEnded: '명령 소진 · 작전 종료',
+    mapCandidates: '포격 후보 {count}칸 · 다음 {point} · {status}',
+    verified: '초기·유지 검증 완료', pending: '검증 대기',
+    noCandidates: '미포격 후보 없음 · 사격 해법을 재검토하라',
+    commandEnded: '작전 종료. 재투입하거나 다음 작전으로 이동하라.',
+    commandNoGoal: '사격 전 목표 조건을 지정하라.',
+    commandKeys: '단발·일제사 모두 명령 1회 소모 · Ctrl+Enter 단발 / Ctrl+Shift+Enter 일제사',
+    initial: '초기 성립', preservation: '유지', goal: '목표 보장',
+    incomplete: '검사 미완료', afterOrder: '명령 후 검사', passed: '통과', unproven: '미보장', dud: '불발',
+    emptyLog: '포대 대기. 전장을 분석하고 사격을 준비하라.',
+    modifiedTitle: '사격 해법 수정. 검증 대기.',
+    modifiedBody: '초기 성립·유지 검사는 명령 하달 시 실시한다. 후보 미리보기를 검증 결과로 오인하지 마라.',
+    readyTitle: '포대 전개 완료. 표적을 지정하라.',
+    readyBody: '목표 칸 또는 ‘적군 전체 선택’으로 목표를 지정하라. 불변식을 보강한 뒤 사격 명령을 하달하라.',
+    missingGoal: '목표 미지정. 지도에서 목표를 선택하거나 ensures를 입력하라.',
+    rejectedTitle: '명령 반려. 입력 조건을 확인하라.', noCharge: '명령 횟수 차감 없음.',
+    emptyTitle: '사격 대상 없음.',
+    emptyBody: '불변식의 종료 영역과 포격 완료 좌표를 대조하라. 미포격 후보가 필요하다.',
+    single: '단발 포격', salvo: '일제사',
+    initialWitness: '초기 상태 {before} · 불변식 불성립.',
+    preservationWitness: '가상 상태 {before} → {after}{outside}', outsideDomain: ' · 검증 세계 이탈',
+    dudTitle: '{mode} 불발 · 명령 −1',
+    initialFailure: '초기 상태 누락 확인. 해당 상태를 포함하도록 불변식을 수정하라.',
+    preservationFailure: '유지 조건 위반. 제시된 가상 상태의 전후 관계를 대조하고 사격 해법을 보강하라.',
+    firedTitle: '{mode} 완료 · {count}발 / 명령 −1',
+    damageReport: '적군 {enemy}기 격파 · 아군 {friendly}기 피해 · 중립 {neutral}칸',
+    goalPassed: '목표 보장 확인. 검증 세계의 모든 종료 후보가 ensures를 충족한다.',
+    goalFailed: '목표 미보장. 종료 후보 {point}를 배제할 조건을 확보하라.',
+    logDud: '{mode} · 불발', logFired: '{mode} · 적군 {enemy} / 아군 {friendly}',
+    logShots: '{count}발 발사 · 중립 {neutral} · 명령 −1{proof}', proofSuffix: ' · 목표 증명 완료',
+    exceptionTitle: '명령 처리 실패. 오류 내용을 확인하라.',
+    resultFriendly: '적 전력 격파. 아군 피해 발생.', resultClean: '적 전력 격파. 아군 피해 없음.',
+    resultFailed: '작전 실패. 사격 해법을 재검토하라.',
+    resultClear: '{name} · 적군 전원 격파 확인. {instruction}',
+    resultImprove: '아군을 사격 영역에서 제외할 조건을 보강하라.',
+    resultBonus: '잔여 명령을 작전 점수에 합산한다.',
+    resultRetry: '명령 소진. 반례와 실행 경로를 분석하고 불변식을 보강한 뒤 재투입하라.',
+    enemyKills: '적군 격파', friendlyLosses: '아군 피해', remaining: '남은 명령',
+    nextMission: '다음 작전 →', firstMission: '첫 작전으로 →',
+    solutionTitle: '검증 해법 참조',
+    solutionBody: '초기·유지 통과 시 발사를 허용한다. 세 조건 모두 통과 시 목표 보장을 인정한다. 동일 기준을 충족하는 다른 해법도 유효하다.',
+    sound: '사운드 {state}',
+  },
+  en: {
+    enemy: 'Enemy', friendly: 'Friendly', neutral: 'Neutral', hit: 'Already struck',
+    cellLabel: 'Coordinate {x}, {y}: {unit}{objective}', objectiveSuffix: ', objective area',
+    cellTitle: '({x}, {y}) {unit} · Click to designate target',
+    coordinatePrompt: 'Designate target coordinates',
+    mapCleared: 'Mission complete · Enemy force eliminated', mapEnded: 'Orders exhausted · Mission ended',
+    mapCandidates: '{count} candidate cells · Next {point} · {status}',
+    verified: 'Initiation & preservation verified', pending: 'Verification pending',
+    noCandidates: 'No unstruck candidates · Revise the firing solution',
+    commandEnded: 'Mission ended. Redeploy or advance to the next operation.',
+    commandNoGoal: 'Designate the objective before firing.',
+    commandKeys: 'Single & salvo each cost 1 order · Ctrl+Enter: single / Ctrl+Shift+Enter: salvo',
+    initial: 'Initiation', preservation: 'Preservation', goal: 'Objective',
+    incomplete: 'Incomplete', afterOrder: 'On order', passed: 'Passed', unproven: 'Unproven', dud: 'Dud',
+    emptyLog: 'Battery standing by. Analyze the battlefield and prepare to fire.',
+    modifiedTitle: 'Firing solution revised. Verification pending.',
+    modifiedBody: 'Initiation and preservation are checked when an order is issued. Do not mistake the candidate preview for a verified result.',
+    readyTitle: 'Battery deployed. Designate targets.',
+    readyBody: 'Select target cells or use “Select all enemies.” Refine the invariant, then issue a fire order.',
+    missingGoal: 'No objective designated. Select targets on the map or enter an ensures condition.',
+    rejectedTitle: 'Order rejected. Check the input conditions.', noCharge: 'No order consumed.',
+    emptyTitle: 'No firing targets.',
+    emptyBody: 'Cross-check the invariant’s exit region against cells already struck. At least one unstruck candidate is required.',
+    single: 'Single shot', salvo: 'Salvo',
+    initialWitness: 'Initial state {before} · Invariant does not hold.',
+    preservationWitness: 'Hypothetical state {before} → {after}{outside}', outsideDomain: ' · Outside verification domain',
+    dudTitle: '{mode} dud · Orders −1',
+    initialFailure: 'Initial state excluded. Revise the invariant to include it.',
+    preservationFailure: 'Preservation failed. Compare the reported state before and after the loop body. Revise the firing solution.',
+    firedTitle: '{mode} complete · Shells: {count} / Orders −1',
+    damageReport: 'Enemies eliminated: {enemy} · Friendly losses: {friendly} · Neutral cells: {neutral}',
+    goalPassed: 'Objective proven. Every exit candidate in the verification domain satisfies ensures.',
+    goalFailed: 'Objective unproven. Establish a condition that excludes exit candidate {point}.',
+    logDud: '{mode} · Dud', logFired: '{mode} · Enemy {enemy} / Friendly {friendly}',
+    logShots: 'Shells fired: {count} · Neutral: {neutral} · Orders −1{proof}', proofSuffix: ' · Objective proven',
+    exceptionTitle: 'Order processing failed. Inspect the error report.',
+    resultFriendly: 'Enemy force eliminated. Friendly losses sustained.',
+    resultClean: 'Enemy force eliminated. No friendly losses.',
+    resultFailed: 'Mission failed. Revise the firing solution.',
+    resultClear: '{name} · All enemies confirmed eliminated. {instruction}',
+    resultImprove: 'Strengthen the conditions to exclude friendlies from the firing zone.',
+    resultBonus: 'Remaining orders count toward the mission score.',
+    resultRetry: 'Orders exhausted. Analyze the counterexamples and execution trace. Strengthen the invariant and redeploy.',
+    enemyKills: 'Enemies eliminated', friendlyLosses: 'Friendly losses', remaining: 'Orders remaining',
+    nextMission: 'Next operation →', firstMission: 'First operation →',
+    solutionTitle: 'Verified solution reference',
+    solutionBody: 'Passing initiation and preservation permits firing. Passing all three checks proves the objective. Other solutions meeting the same conditions are also valid.',
+    sound: 'Sound {state}',
+  },
+};
+
+export function translate(language, key, parameters = {}) {
+  const template = COPY[language]?.[key] ?? COPY.ko[key];
+  if (template === undefined) throw new Error(`Unknown translation key: ${key}`);
+  return template.replace(/\{(\w+)\}/g, (_, name) => String(parameters[name] ?? `{${name}}`));
+}

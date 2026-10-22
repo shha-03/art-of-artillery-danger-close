@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 // Import as an ES module independently of a package.json or build tool.
 const engineSource = await readFile(new URL('./dist/engine.js', import.meta.url), 'utf8');
-const { DOMAIN, parseExpression, evaluate, analyze, createBattle, order } = await import(
+const { DOMAIN, parseExpression, evaluate, analyze, createBattle, order, formatEngineError } = await import(
   `data:text/javascript;base64,${Buffer.from(engineSource).toString('base64')}`
 );
 
@@ -294,4 +294,112 @@ test('interrupted arithmetic evaluation reports every proof check as incomplete'
   assert.deepEqual(result.initial, { pass: null });
   assert.deepEqual(result.preservation, { pass: null });
   assert.deepEqual(result.goal, { pass: null });
+});
+
+function captureError(action) {
+  try { action(); } catch (error) { return error; }
+  assert.fail('Expected an engine error.');
+}
+
+test('structured parser errors retain Korean compatibility and localize tokens and positions', () => {
+  const error = captureError(() => parseExpression('x = 1'));
+  assert.ok(error instanceof SyntaxError);
+  assert.equal(error.errorCode, 'unsupported-character');
+  assert.deepEqual(error.errorParams, { character: '=', position: 2 });
+  assert.equal(error.message, "미지원 문자 '=' 확인. 지원 문법을 대조하라. (위치 3)");
+  assert.equal(formatEngineError(error), error.message);
+  assert.equal(formatEngineError(error, 'en'), "Unsupported character '='. Check the permitted syntax. (position 3)");
+  error.message = 'This diagnostic was replaced.';
+  assert.equal(formatEngineError(error, 'en'), "Unsupported character '='. Check the permitted syntax. (position 3)");
+  const typed = captureError(() => parseExpression('true + 1'));
+  assert.equal(formatEngineError(typed, 'en'), "Input type mismatch at '+'. Use an integer expression. (position 6)");
+  const boolean = captureError(() => parseExpression('x && true'));
+  assert.equal(formatEngineError(boolean, 'en'), "Input type mismatch at '&&'. Use a Boolean expression. (position 3)");
+});
+
+test('analyze localizes semantic labels and preserves metadata through an unconsumed order', () => {
+  const invariant = analyze('x + y', 'true', level());
+  assert.equal(invariant.errorCode, 'predicate-type');
+  assert.deepEqual(invariant.errorParams, { label: 'invariant' });
+  assert.equal(invariant.error, '불변식: 참/거짓을 나타내는 식을 입력하라.');
+  assert.equal(formatEngineError(invariant, 'en'), 'Invariant: enter a Boolean expression.');
+  const goal = analyze('true', 'x', level());
+  assert.equal(formatEngineError(goal, 'en'), 'Goal: enter a Boolean expression.');
+  const guard = analyze('true', 'true', level({ guardSource: 'x' }));
+  assert.equal(formatEngineError(guard, 'en'), 'Loop guard: enter a Boolean expression.');
+  const battle = createBattle(level());
+  const command = order(battle, 'x + y', 'true', 'salvo');
+  assert.equal(command.reason, 'syntax-error');
+  assert.equal(command.battle, battle);
+  assert.equal(command.cost, 0);
+  assert.equal(command.error, invariant.error);
+  assert.equal(command.errorCode, invariant.errorCode);
+  assert.deepEqual(command.errorParams, invariant.errorParams);
+  assert.equal(formatEngineError(command, 'en'), 'Invariant: enter a Boolean expression.');
+});
+
+test('runtime errors, numeric bounds and mode rejection provide English reports', () => {
+  const literal = captureError(() => parseExpression('9007199254740992'));
+  assert.ok(literal instanceof RangeError);
+  assert.equal(formatEngineError(literal, 'en'), 'Number literal: exact integer range exceeded.');
+  const overflow = captureError(() => evalAt('9007199254740991 + 1'));
+  assert.equal(formatEngineError(overflow, 'en'), 'Arithmetic result: exact integer range exceeded.');
+  const variable = captureError(() => evalAt('x', { x: 0.5, y: 0 }));
+  assert.equal(formatEngineError(variable, 'en'), 'x: exact integer range exceeded.');
+  const initial = captureError(() => createBattle(level({ initial: { x: 33, y: 0 } })));
+  assert.ok(initial instanceof TypeError);
+  assert.deepEqual(initial.errorParams, { min: -32, max: 32 });
+  assert.equal(formatEngineError(initial, 'en'), 'Initial coordinates invalid. Use integers from -32 to 32.');
+  const size = captureError(() => createBattle(level({ size: 34 })));
+  assert.equal(formatEngineError(size, 'en'), 'Board size invalid. Use an integer from 1 to 33.');
+  const mode = order(createBattle(level()), 'true', 'true', 'rapid');
+  assert.equal(mode.errorCode, 'invalid-mode');
+  assert.deepEqual(mode.errorParams, { mode: 'rapid' });
+  assert.equal(mode.cost, 0);
+  assert.equal(formatEngineError(mode, 'en'), 'Fire mode invalid. Select single or salvo.');
+});
+
+test('all remaining engine-controlled diagnostics carry codes and an English translation', () => {
+  const cases = [
+    ['missing-expression', () => parseExpression('')],
+    ['expression-too-long', () => parseExpression('x'.repeat(4097))],
+    ['too-many-tokens', () => parseExpression(Array(514).fill('x').join('+'))],
+    ['comparison-type', () => parseExpression('x == true')],
+    ['nesting-too-deep', () => parseExpression(`${'('.repeat(150)}true${')'.repeat(150)}`)],
+    ['missing-close-parenthesis', () => parseExpression('(true')],
+    ['expected-operand', () => parseExpression('x +')],
+    ['unexpected-token', () => parseExpression('x y')],
+    ['invalid-ast', () => evaluate(null, { x: 0, y: 0 })],
+    ['zero-remainder-divisor', () => evalAt('x % 0')],
+    ['unsupported-ast', () => evaluate({ kind: 'unsupported' }, { x: 0, y: 0 })],
+    ['missing-step', () => createBattle(level({ step: undefined }))],
+    ['invalid-layout', () => createBattle(level({ enemies: {} }))],
+    ['offboard-unit', () => createBattle(level({ enemies: [{ x: 9, y: 0 }] }))],
+    ['duplicate-unit', () => createBattle(level({ allies: [{ x: 2, y: 0 }] }))],
+    ['invalid-command-budget', () => createBattle(level({ commands: -1 }))],
+  ];
+  for (const [code, action] of cases) {
+    const error = captureError(action);
+    assert.equal(error.errorCode, code);
+    assert.equal(typeof error.errorParams, 'object');
+    assert.equal(formatEngineError(error), error.message);
+    const english = formatEngineError(error, 'en');
+    assert.ok(english.length > 0, code);
+    assert.doesNotMatch(english, /[가-힣]/, code);
+    assert.notEqual(english, error.message, code);
+  }
+  const missing = analyze('true', 'true', level({ step: () => null }));
+  assert.equal(missing.errorCode, 'missing-coordinate');
+  assert.equal(formatEngineError(missing, 'en'), 'Program transition returned no coordinates.');
+});
+
+test('unknown external diagnostics are preserved without string-matching translation', () => {
+  const external = new Error('External transition failed.');
+  const report = analyze('true', 'true', level({ step: () => { throw external; } }));
+  assert.equal(report.errorCode, 'unexpected-error');
+  assert.deepEqual(report.errorParams, { detail: external.message });
+  assert.equal(report.error, external.message);
+  assert.equal(formatEngineError(external, 'en'), external.message);
+  assert.equal(formatEngineError(report, 'en'), external.message);
+  assert.equal(formatEngineError(null, 'en'), 'Unknown execution error. Inspect the error report.');
 });

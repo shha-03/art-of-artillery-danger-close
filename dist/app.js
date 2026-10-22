@@ -1,5 +1,7 @@
-import { parseExpression, evaluate, createBattle, order } from './engine.js';
+import { parseExpression, evaluate, createBattle, order, formatEngineError } from './engine.js';
 import { LEVELS } from './levels.js';
+import { LANGUAGE_STORAGE_KEY, resolveLanguage, translate } from './i18n.js';
+import { applyStaticTranslations } from './ui-copy.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -14,12 +16,23 @@ let levelIndex = 0, battle, lastAnalysis = null, records = [], selectedTargets =
 let preview = true, traceVisible = false, busy = false, sound = false, audioContext = null;
 let witness = null, impacts = [], hintCount = 1, turnToken = 0, toastTimer;
 let best = {};
-try { best = JSON.parse(localStorage.getItem('danger-close-best-v1') || '{}'); } catch {}
+try {
+  const savedBest = JSON.parse(localStorage.getItem('danger-close-best-v1') || '{}');
+  if (savedBest && typeof savedBest === 'object' && !Array.isArray(savedBest)) {
+    best = Object.fromEntries(LEVELS.filter(l=>Number.isSafeInteger(savedBest[l.id])).map(l=>[l.id,savedBest[l.id]]));
+  }
+} catch {}
+let savedLanguage;
+try { savedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY); } catch {}
+let language = resolveLanguage(savedLanguage, navigator.languages || [navigator.language]);
+let feedbackState = { type: 'ready' }, toastKey = null;
+const t = (key, parameters) => translate(language, key, parameters);
+const levelCopy = (l = level()) => language === 'en' ? l.en : l;
 
 function level() { return LEVELS[levelIndex]; }
-function flash(message) {
-  $('toast').textContent = message; $('toast').hidden = false;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; }, 3200);
+function flash(messageKey) {
+  toastKey = messageKey; $('toast').textContent = t(messageKey); $('toast').hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; toastKey = null; }, 3200);
 }
 function openDialog(id) { if (!$(id).open) $(id).showModal(); }
 function closeDialog(id) { $(id).close(); }
@@ -44,14 +57,13 @@ function previewCandidates() {
   return result.sort((a,b)=>priority[a.type]-priority[b.type] || a.x-b.x || a.y-b.y);
 }
 function renderTabs() {
-  $('mission-tabs').innerHTML = LEVELS.map((l,i)=>`<button class="mission-tab ${i===levelIndex?'active':''}" data-level="${i}" ${busy?'disabled':''} aria-current="${i===levelIndex?'step':'false'}"><span class="mission-index">${esc(l.id)}</span><span class="mission-name">${esc(l.name)}<small>${esc(l.subtitle)}</small></span><span class="mission-check">${best[l.id]!==undefined?`${best[l.id]} PT`:'↗'}</span></button>`).join('');
+  $('mission-tabs').innerHTML = LEVELS.map((l,i)=>`<button class="mission-tab ${i===levelIndex?'active':''}" data-level="${i}" ${busy?'disabled':''} aria-current="${i===levelIndex?'step':'false'}"><span class="mission-index">${esc(l.id)}</span><span class="mission-name">${esc(levelCopy(l).name)}<small>${esc(l.subtitle)}</small></span><span class="mission-check">${best[l.id]!==undefined?`${best[l.id]} PT`:'↗'}</span></button>`).join('');
 }
 function renderMap() {
   const l=level(), candidates=previewCandidates(), candidateSet=new Set(candidates.map(key));
   const goal=expression($('goal-input').value), guard=expression(l.guardSource);
   const enemies=new Set(battle.enemies.map(key)), allies=new Set(battle.allies.map(key));
   const hitMap=new Map(battle.hit.map(p=>[key(p),p])), impactSet=new Set(impacts.map(key));
-  const labels={enemy:'적군',friendly:'아군',neutral:'중립'};
   const cells=['<span class="axis-label axis-corner">Y / X</span>'];
   for(let x=0;x<l.size;x++)cells.push(`<span class="axis-label">${x}</span>`);
   for(let y=l.size-1;y>=0;y--) {
@@ -61,7 +73,8 @@ function renderMap() {
       const terminal=!matches(guard,p), objective=matches(goal,p);
       const classes=['cell',type,terminal?'terminal':'',preview&&candidateSet.has(k)?'candidate':'',preview&&key(candidates[0]||{})===k?'next-target':'',objective?'objective':'',hit?'hit':'',impactSet.has(k)?'impact':'',witness&&key(witness)===k?'witness':''].filter(Boolean).join(' ');
       const content=hit?`<span class="crater ${esc(hit.type||'neutral')}">×</span>`:(unitIcons[type]||'<span class="neutral-dot"></span>');
-      cells.push(`<button class="${classes}" data-cell="${x},${y}" aria-label="좌표 ${x}, ${y}: ${hit?'포격 완료':labels[type]}${objective?', 목표 영역':''}" aria-pressed="${objective?'true':'false'}" title="(${x}, ${y}) ${hit?'포격 완료':labels[type]} · 클릭해서 목표 선택" ${busy?'disabled':''}>${content}<span class="cell-coordinate">${x},${y}</span>${objective?'<span class="target-reticle"></span>':''}</button>`);
+      const labelParams={x,y,unit:t(hit?'hit':type),objective:objective?t('objectiveSuffix'):''};
+      cells.push(`<button class="${classes}" data-cell="${x},${y}" aria-label="${esc(t('cellLabel',labelParams))}" aria-pressed="${objective?'true':'false'}" title="${esc(t('cellTitle',labelParams))}" ${busy?'disabled':''}>${content}<span class="cell-coordinate">${x},${y}</span>${objective?'<span class="target-reticle"></span>':''}</button>`);
     }
   }
   const xy = p => `${p.x*100+50},${(l.size-1-p.y)*100+50}`;
@@ -74,7 +87,7 @@ function renderMap() {
   cells.push(`<svg class="trace-layer" viewBox="0 0 ${l.size*100} ${l.size*100}" aria-hidden="true">${overlay}</svg>`);
   $('grid').style.setProperty('--size',l.size); $('grid').innerHTML=cells.join('');
   $('map-sector').textContent=`SECTOR ${String.fromCharCode(65+levelIndex)} · ${pad(l.size)} × ${pad(l.size)}`;
-  $('map-status').textContent = battle.finished ? (battle.cleared?'작전 완료 · 적 전력 격파':'명령 소진 · 작전 종료') : candidates.length?`포격 후보 ${candidates.length}칸 · 다음 (${candidates[0].x}, ${candidates[0].y}) · ${lastAnalysis?.valid?'초기·유지 검증 완료':'검증 대기'}`:'미포격 후보 없음 · 사격 해법을 재검토하라';
+  $('map-status').textContent = battle.finished ? t(battle.cleared?'mapCleared':'mapEnded') : candidates.length?t('mapCandidates',{count:candidates.length,point:point(candidates[0]),status:t(lastAnalysis?.valid?'verified':'pending')}):t('noCandidates');
   $('preview-button').classList.toggle('active',preview); $('preview-button').setAttribute('aria-pressed',String(preview));
   $('trace-button').classList.toggle('active',traceVisible); $('trace-button').setAttribute('aria-pressed',String(traceVisible));
 }
@@ -86,35 +99,59 @@ function renderStats() {
   $('single-button').disabled=disabled; $('salvo-button').disabled=disabled;
   $('restart-button').disabled=busy; $('invariant-input').disabled=busy||battle.finished; $('goal-input').disabled=busy||battle.finished;
   $('target-enemies').disabled=busy||battle.finished;
-  $('command-note').textContent=battle.finished?'작전 종료. 재투입하거나 다음 작전으로 이동하라.':!$('goal-input').value.trim()?'사격 전 목표 조건을 지정하라.':'단발·일제사 모두 명령 1회 소모 · Ctrl+Enter 단발 / Ctrl+Shift+Enter 일제사';
+  $('command-note').textContent=t(battle.finished?'commandEnded':!$('goal-input').value.trim()?'commandNoGoal':'commandKeys');
 }
 function renderChecks() {
-  const labels=[['initial','초기 성립'],['preservation','유지'],['goal','목표 보장']];
-  $('verification-strip').innerHTML=labels.map(([k,label])=>{
+  $('verification-strip').innerHTML=['initial','preservation','goal'].map(k=>{
     const check=lastAnalysis?.[k], pending=Boolean(lastAnalysis?.error)||!check||typeof check.pass!=='boolean';
-    return `<div class="check-item ${pending?'pending':check.pass?'pass':'fail'}"><span class="check-icon">${pending?'○':check.pass?'✓':'×'}</span><span class="check-title">${label}</span><span class="check-detail">${pending?(lastAnalysis?.error?'검사 미완료':'명령 후 검사'):check.pass?'통과':k==='goal'?'미보장':'불발'}</span></div>`;
+    return `<div class="check-item ${pending?'pending':check.pass?'pass':'fail'}"><span class="check-icon">${pending?'○':check.pass?'✓':'×'}</span><span class="check-title">${esc(t(k))}</span><span class="check-detail">${esc(t(pending?(lastAnalysis?.error?'incomplete':'afterOrder'):check.pass?'passed':k==='goal'?'unproven':'dud'))}</span></div>`;
   }).join('');
 }
 function feedback(kind,title,body,detail='') {
   $('feedback-panel').dataset.kind=kind;
   $('feedback-panel').innerHTML=`<div class="feedback-title">${esc(title)}</div><div class="feedback-body">${esc(body)}</div>${detail?`<div class="feedback-witness">${esc(detail)}</div>`:''}`;
 }
+function witnessReport(analysis) {
+  const initial=analysis.initial.pass===false;
+  const check=initial?analysis.initial:analysis.preservation;
+  return t(initial?'initialWitness':'preservationWitness',{before:point(check.before),after:point(check.after),outside:check.outsideDomain?t('outsideDomain'):''});
+}
+function shotReport(event) {
+  return {mode:t(event.mode),count:event.shots.length,enemy:event.shots.filter(s=>s.type==='enemy').length,friendly:event.shots.filter(s=>s.type==='friendly').length,neutral:event.shots.filter(s=>s.type==='neutral').length};
+}
+function renderFeedback() {
+  const f=feedbackState;
+  if(f.type==='ready'||f.type==='modified') return feedback('ready',t(`${f.type}Title`),t(`${f.type}Body`));
+  if(f.type==='error') return feedback('error',t('rejectedTitle'),formatEngineError(f.error,language),t('noCharge'));
+  if(f.type==='empty') return feedback('ready',t('emptyTitle'),t('emptyBody'),t('noCharge'));
+  if(f.type==='exception') return feedback('error',t('exceptionTitle'),formatEngineError(f.error,language));
+  if(f.type==='dud') return feedback('error',t('dudTitle',{mode:t(f.mode)}),t(f.analysis.initial.pass===false?'initialFailure':'preservationFailure'),witnessReport(f.analysis));
+  if(f.type==='fired') {
+    const report=shotReport(f), goalPassed=f.analysis.goal.pass===true;
+    feedback(report.friendly?'error':goalPassed?'success':'warning',t('firedTitle',report),t('damageReport',report),goalPassed?t('goalPassed'):t('goalFailed',{point:point(f.analysis.goal.before)}));
+  }
+}
 function renderLogs() {
   $('log-count').textContent=`${pad(records.length)} ENTRIES`;
-  $('log-list').innerHTML=records.length?records.map((r,i)=>`<li class="log-entry"><span class="log-marker ${r.kind}"></span><div><strong>${esc(r.title)}</strong><p>${esc(r.body)}</p><code>${esc(r.expression)}</code></div><span class="log-time">#${pad(records.length-i)}</span></li>`).join(''):'<li class="empty-log">포대 대기. 전장을 분석하고 사격을 준비하라.</li>';
+  $('log-list').innerHTML=records.length?records.map((r,i)=>{
+    const report=r.type==='fired'?shotReport(r):{mode:t(r.mode)};
+    const title=t(r.type==='dud'?'logDud':'logFired',report);
+    const body=r.type==='dud'?witnessReport(r.analysis):t('logShots',{...report,proof:r.analysis.goal.pass?t('proofSuffix'):''});
+    return `<li class="log-entry"><span class="log-marker ${r.kind}"></span><div><strong>${esc(title)}</strong><p>${esc(body)}</p><code>${esc(r.expression)}</code></div><span class="log-time">#${pad(records.length-i)}</span></li>`;
+  }).join(''):`<li class="empty-log">${esc(t('emptyLog'))}</li>`;
 }
-function render() {renderTabs();renderStats();renderMap();renderChecks();renderLogs();}
+function render() {renderTabs();renderStats();renderMap();renderChecks();renderLogs();renderFeedback();}
 function invalidateAnalysis() {
   lastAnalysis=null; witness=null; renderChecks();renderMap();renderStats();
-  feedback('ready','사격 해법 수정. 검증 대기.','초기 성립·유지 검사는 명령 하달 시 실시한다. 후보 미리보기를 검증 결과로 오인하지 마라.');
+  feedbackState={type:'modified'};renderFeedback();
 }
 function loadLevel(index) {
   levelIndex=index; battle=createBattle(level()); lastAnalysis=null;records=[];selectedTargets=new Set();witness=null;impacts=[];hintCount=1;busy=false;turnToken++;
   $('invariant-input').value=level().starter; $('goal-input').value='';
   $('operation-label').textContent=`OPERATION ${level().id} / ${pad(LEVELS.length)}`;
-  $('mission-brief').textContent=level().brief;
+  $('mission-brief').textContent=levelCopy().brief;
   $('program-code').innerHTML=level().code.split('\n').map((line,i)=>`<span class="code-line"><span class="line-number">${pad(i+1)}</span><span>${esc(line).replace(/\b(while|if|else)\b/g,'<span class="code-keyword">$1</span>')}</span></span>`).join('');
-  feedback('ready','포대 전개 완료. 표적을 지정하라.','목표 칸 또는 ‘적군 전체 선택’으로 목표를 지정하라. 불변식을 보강한 뒤 사격 명령을 하달하라.');
+  feedbackState={type:'ready'};
   render();
 }
 function setSelectedGoal() {
@@ -133,34 +170,31 @@ function playSound(dud=false) {
 }
 async function fire(mode) {
   if(busy||battle.finished) return;
-  if(!$('goal-input').value.trim()) { flash('목표 미지정. 지도에서 목표를 선택하거나 ensures를 입력하라.');$('goal-input').focus();return; }
+  if(!$('goal-input').value.trim()) { flash('missingGoal');$('goal-input').focus();return; }
   busy=true;renderStats();
   const currentToken=turnToken;
   try {
     const result=order(battle,$('invariant-input').value,$('goal-input').value,mode);
     lastAnalysis=result.analysis || null;
     if(result.error) {
-      busy=false;feedback('error','명령 반려. 입력 조건을 확인하라.',result.error,'명령 횟수 차감 없음.');render();return;
+      busy=false;feedbackState={type:'error',error:result};render();return;
     }
     if(result.reason==='no-candidates' || result.cost===0) {
-      busy=false;feedback('ready','사격 대상 없음.','불변식의 종료 영역과 포격 완료 좌표를 대조하라. 미포격 후보가 필요하다.','명령 횟수 차감 없음.');render();return;
+      busy=false;feedbackState={type:'empty'};render();return;
     }
     battle=result.battle;
-    const name=mode==='salvo'?'일제사':'단발 포격';
-    const shots=result.shots||[], enemy=shots.filter(s=>s.type==='enemy').length,friendly=shots.filter(s=>s.type==='friendly').length,neutral=shots.filter(s=>s.type==='neutral').length;
+    const shots=result.shots||[], friendly=shots.filter(s=>s.type==='friendly').length;
     if(result.dud) {
       const initial=lastAnalysis?.initial?.pass===false;
       const check=initial?lastAnalysis.initial:lastAnalysis.preservation;
       witness=check?.before || (initial?level().initial:null);
-      const detail=initial?`초기 상태 ${point(witness)} · 불변식 불성립.`:`가상 상태 ${point(check?.before)} → ${point(check?.after)}${check?.outsideDomain?' · 검증 세계 이탈':''}`;
-      feedback('error',`${name} 불발 · 명령 −1`,initial?'초기 상태 누락 확인. 해당 상태를 포함하도록 불변식을 수정하라.':'유지 조건 위반. 제시된 가상 상태의 전후 관계를 대조하고 사격 해법을 보강하라.',detail);
-      records.unshift({kind:'dud',title:`${name} · 불발`,body:detail,expression:$('invariant-input').value});
+      feedbackState={type:'dud',mode,analysis:lastAnalysis};
+      records.unshift({...feedbackState,kind:'dud',expression:$('invariant-input').value});
       playSound(true);
     } else {
       impacts=shots;witness=lastAnalysis?.goal?.pass===false?lastAnalysis.goal.before:null;
-      const goalPassed=lastAnalysis?.goal?.pass===true;
-      feedback(friendly?'error':goalPassed?'success':'warning',`${name} 완료 · ${shots.length}발 / 명령 −1`,`적군 ${enemy}기 격파 · 아군 ${friendly}기 피해 · 중립 ${neutral}칸`,goalPassed?'목표 보장 확인. 검증 세계의 모든 종료 후보가 ensures를 충족한다.':`목표 미보장. 종료 후보 ${point(lastAnalysis?.goal?.before)}를 배제할 조건을 확보하라.`);
-      records.unshift({kind:friendly?'dud':'success',title:`${name} · 적군 ${enemy} / 아군 ${friendly}`,body:`${shots.length}발 발사 · 중립 ${neutral} · 명령 −1${goalPassed?' · 목표 증명 완료':''}`,expression:$('invariant-input').value});
+      feedbackState={type:'fired',mode,analysis:lastAnalysis,shots};
+      records.unshift({...feedbackState,kind:friendly?'dud':'success',expression:$('invariant-input').value});
       playSound();
     }
     render();
@@ -169,7 +203,7 @@ async function fire(mode) {
     busy=false;impacts=[];render();
     if(battle.finished)showResult();
   } catch(error) {
-    busy=false;feedback('error','명령 처리 실패. 오류 내용을 확인하라.',error.message||String(error));renderStats();
+    busy=false;feedbackState={type:'exception',error};renderFeedback();renderStats();
   }
 }
 function showResult() {
@@ -178,23 +212,42 @@ function showResult() {
     best[level().id]=Math.max(best[level().id]??-Infinity,battle.score);
     try{localStorage.setItem('danger-close-best-v1',JSON.stringify(best));}catch{}
   }
+  renderResult();renderTabs();openDialog('result-dialog');
+}
+function renderResult() {
+  const clear=battle.cleared;
   $('result-kicker').textContent=clear?'MISSION COMPLETE':'MISSION ENDED';
-  $('result-title').textContent=clear?(battle.friendlyKills?'적 전력 격파. 아군 피해 발생.':'적 전력 격파. 아군 피해 없음.'):'작전 실패. 사격 해법을 재검토하라.';
-  $('result-copy').textContent=clear?`${level().name} · 적군 전원 격파 확인.${battle.friendlyKills?' 아군을 사격 영역에서 제외할 조건을 보강하라.':' 잔여 명령을 작전 점수에 합산한다.'}`:'명령 소진. 반례와 실행 경로를 분석하고 불변식을 보강한 뒤 재투입하라.';
+  $('result-title').textContent=t(clear?(battle.friendlyKills?'resultFriendly':'resultClean'):'resultFailed');
+  $('result-copy').textContent=clear?t('resultClear',{name:levelCopy().name,instruction:t(battle.friendlyKills?'resultImprove':'resultBonus')}):t('resultRetry');
   $('result-score').textContent=battle.score;
-  $('result-stats').innerHTML=`<div><strong>${battle.enemyKills}</strong><span>적군 격파</span></div><div><strong>${battle.friendlyKills}</strong><span>아군 피해</span></div><div><strong>${battle.remaining}</strong><span>남은 명령</span></div>`;
-  $('result-next').textContent=levelIndex<LEVELS.length-1?'다음 작전 →':'첫 작전으로 →';
-  renderTabs();openDialog('result-dialog');
+  $('result-stats').innerHTML=`<div><strong>${battle.enemyKills}</strong><span>${esc(t('enemyKills'))}</span></div><div><strong>${battle.friendlyKills}</strong><span>${esc(t('friendlyLosses'))}</span></div><div><strong>${battle.remaining}</strong><span>${esc(t('remaining'))}</span></div>`;
+  $('result-next').textContent=t(levelIndex<LEVELS.length-1?'nextMission':'firstMission');
 }
 function renderHints() {
-  $('hint-list').innerHTML=level().hints.slice(0,hintCount).map((h,i)=>`<div class="hint-item"><span>INTEL ${pad(i+1)}</span><p>${esc(h)}</p></div>`).join('')+(hintCount===level().hints.length?`<div class="hint-item"><span>검증 해법 참조</span><code>${esc(level().solution)}</code><p>초기·유지 통과 시 발사를 허용한다. 세 조건 모두 통과 시 목표 보장을 인정한다. 동일 기준을 충족하는 다른 해법도 유효하다.</p></div>`:'');
+  $('hint-list').innerHTML=levelCopy().hints.slice(0,hintCount).map((h,i)=>`<div class="hint-item"><span>INTEL ${pad(i+1)}</span><p>${esc(h)}</p></div>`).join('')+(hintCount===level().hints.length?`<div class="hint-item"><span>${esc(t('solutionTitle'))}</span><code>${esc(level().solution)}</code><p>${esc(t('solutionBody'))}</p></div>`:'');
   $('next-hint').disabled=hintCount>=level().hints.length;
 }
+function renderSound() {
+  $('sound-button').textContent=t('sound',{state:sound?'ON':'OFF'});
+  $('sound-button').setAttribute('aria-pressed',String(sound));
+}
+function changeLanguage(nextLanguage) {
+  language=resolveLanguage(nextLanguage);
+  try {localStorage.setItem(LANGUAGE_STORAGE_KEY,language);} catch {}
+  // Re-render presentation only. Inputs, battle state and report data remain intact.
+  applyStaticTranslations(language);
+  $('mission-brief').textContent=levelCopy().brief;
+  $('hover-coordinate').textContent=t('coordinatePrompt');
+  render();renderHints();renderSound();
+  if(battle.finished)renderResult();
+  if(toastKey)$('toast').textContent=t(toastKey);
+}
 
+$('language-select').addEventListener('change',e=>changeLanguage(e.target.value));
 $('mission-tabs').addEventListener('click',e=>{const b=e.target.closest('[data-level]');if(b&&!busy)loadLevel(Number(b.dataset.level));});
 $('grid').addEventListener('click',e=>{const b=e.target.closest('[data-cell]');if(!b||busy||battle.finished)return;const k=b.dataset.cell;selectedTargets.has(k)?selectedTargets.delete(k):selectedTargets.add(k);setSelectedGoal();});
 $('grid').addEventListener('pointerover',e=>{const b=e.target.closest('[data-cell]');if(b)$('hover-coordinate').textContent=`COORDINATE (${b.dataset.cell.replace(',',', ')})`;});
-$('grid').addEventListener('pointerleave',()=>{$('hover-coordinate').textContent='목표 좌표를 지정하라';});
+$('grid').addEventListener('pointerleave',()=>{$('hover-coordinate').textContent=t('coordinatePrompt');});
 $('target-enemies').addEventListener('click',()=>{selectedTargets=new Set(level().enemies.map(key));setSelectedGoal();});
 $('goal-input').addEventListener('input',()=>{selectedTargets.clear();invalidateAnalysis();});
 $('invariant-input').addEventListener('input',invalidateAnalysis);
@@ -212,8 +265,10 @@ $('hint-button').addEventListener('click',()=>{renderHints();openDialog('hint-di
 $('next-hint').addEventListener('click',()=>{hintCount++;renderHints();});
 $('result-retry').addEventListener('click',()=>{closeDialog('result-dialog');loadLevel(levelIndex);});
 $('result-next').addEventListener('click',()=>{closeDialog('result-dialog');loadLevel((levelIndex+1)%LEVELS.length);});
-$('sound-button').addEventListener('click',()=>{sound=!sound;$('sound-button').textContent=`사운드 ${sound?'ON':'OFF'}`;$('sound-button').setAttribute('aria-pressed',String(sound));if(sound)playSound(true);});
+$('sound-button').addEventListener('click',()=>{sound=!sound;renderSound();if(sound)playSound(true);});
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>closeDialog(b.dataset.close)));
 document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();}}));
 document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key==='Enter'&&!document.querySelector('dialog[open]')){e.preventDefault();fire(e.shiftKey?'salvo':'single');}});
+applyStaticTranslations(language);
 loadLevel(0);
+renderSound();

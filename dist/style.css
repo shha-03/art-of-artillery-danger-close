@@ -439,3 +439,31 @@ button:not(.cell) { min-height: 44px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+
+/* Keep language controls and translated labels usable at narrow widths. */
+.topbar { height: auto; min-height: 68px; padding-top: 8px; padding-bottom: 8px; }
+.topbar-right { flex-wrap: wrap; justify-content: flex-end; gap: 12px; }
+.language-select { min-height: 44px; max-width: 104px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 2px; background: #20271d; color: var(--cream); font-family: var(--sans); font-size: 11px; cursor: pointer; }
+.language-select:focus-visible { outline: 2px solid var(--orange-bright); outline-offset: 3px; }
+.language-select option { background: #20271d; color: var(--cream); }
+html[lang="en"] .intro-copy { max-width: 650px; }
+html[lang="en"] .modal-title { font-size: clamp(23px, 4vw, 28px); line-height: 1.25; }
+html[lang="en"] .editor-header { flex-wrap: wrap; gap: 2px 10px; }
+html[lang="en"] .domain-badge { text-align: left; }
+html[lang="en"] .fire-button small { font-size: 9px; line-height: 1.5; white-space: normal; }
+@media (max-width: 1100px) {
+  .brand-subtitle, .brand-divider { display: none; }
+}
+@media (max-width: 600px) {
+  .topbar { flex-wrap: wrap; gap: 3px 12px; padding-top: 10px; padding-bottom: 6px; }
+  .brand-name { min-height: 32px; }
+  .topbar-right { width: 100%; justify-content: space-between; gap: 8px; }
+  .topbar-right .text-button { white-space: nowrap; }
+  .language-select { min-width: 88px; }
+  html[lang="en"] .map-tools { gap: 0; }
+  html[lang="en"] .icon-button { padding-left: 6px; padding-right: 6px; font-size: 9px; }
+  html[lang="en"] .check-title { font-size: 9px; }
+  html[lang="en"] .check-detail { font-size: 8px; }
+  html[lang="en"] .fire-button { gap: 6px; }
+  html[lang="en"] .fire-button small { font-size: 9px; }
+}
