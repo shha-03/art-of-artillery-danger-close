@@ -143,7 +143,7 @@ function renderFeedback() {
   if(f.type==='dud') return feedback('error',t('dudTitle',{mode:t(f.mode)}),t(f.analysis.initial.pass===false?'initialFailure':'preservationFailure'),witnessReport(f.analysis));
   if(f.type==='fired') {
     const report=shotReport(f), goalPassed=f.analysis.goal.pass===true;
-    feedback(report.friendly?'error':goalPassed?'success':'warning',t('firedTitle',report),t('damageReport',report),goalPassed?t('goalPassed'):t('goalFailed',{point:point(f.analysis.goal.before)}));
+    feedback(report.friendly?'error':goalPassed?'success':'warning',t('firedTitle',report),t('damageReport',report),goalPassed?t('goalPassed'):t(level().initialCondition?.trim()==='true'?'unrestrictedGoalFailed':'goalFailed',{point:point(f.analysis.goal.before)}));
   }
 }
 function renderLogs() {
