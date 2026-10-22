@@ -215,19 +215,19 @@ test('command budget defaults and invalid level data are handled', () => {
 const levelsSource = await readFile(new URL('./dist/levels.js', import.meta.url), 'utf8');
 const { LEVELS } = await import(`data:text/javascript;base64,${Buffer.from(levelsSource).toString('base64')}`);
 
-test('all authored starters are valid and every solution proves exactly its three enemy coordinates', () => {
-  assert.equal(LEVELS.length, 4);
+test('authored starters expose their intended failure and each solution proves its three enemy coordinates', () => {
+  assert.equal(LEVELS.length, 5);
   for (const mission of LEVELS) {
     const starter = analyze(mission.starter, mission.goalSolution, mission);
     assert.equal(starter.error, undefined, mission.id);
-    assert.equal(starter.valid, true, mission.id);
-    assert.equal(starter.goal.pass, false, mission.id);
+    assert.equal(starter.valid, mission.initialCondition === undefined, mission.id);
+    assert.equal(starter.goal.pass, mission.initialCondition !== undefined, mission.id);
     const solution = analyze(mission.solution, mission.goalSolution, mission);
     assert.equal(solution.valid, true, mission.id);
     assert.equal(solution.goal.pass, true, mission.id);
     assert.equal(solution.exitStateCount, 3, mission.id);
     assert.equal(solution.traceStatus, 'terminated', mission.id);
-    assert.equal(solution.initial.checkedCount, 3, mission.id);
+    assert.equal(solution.initial.checkedCount, mission.initialCondition !== undefined ? DOMAIN.stateCount : 3, mission.id);
     assert.deepEqual(solution.candidates, mission.enemies, mission.id);
     assert.equal(solution.traces.length, 3, mission.id);
     assert.equal(solution.traces.every(run => run.traceStatus === 'terminated'), true, mission.id);
@@ -492,4 +492,125 @@ test('per-input termination statuses stay distinct while legacy trace fields sel
   assert.deepEqual(legacyReport.initial, { pass: true, checkedCount: 1 });
   assert.equal(legacyReport.traces.length, 1);
   assert.deepEqual(legacyReport.traces[0], { initial: { x: 0, y: 0 }, trace: legacyReport.trace, traceStatus: legacyReport.traceStatus });
+});
+
+const { traceInputsForLevel: getTraceInputs } = await import(
+  `data:text/javascript;base64,${Buffer.from(engineSource).toString('base64')}`
+);
+
+test('a true precondition checks all 4225 initial states while running only representative traces', () => {
+  let transitions = 0;
+  const traceInputs = [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 2 }];
+  const mission = level({
+    initialCondition: 'true',
+    traceInputs,
+    guardSource: 'x == 0',
+    step: ({ x, y }) => { transitions++; return { x: x + 1, y }; },
+  });
+  const allInputs = getInitialStates(mission);
+  assert.equal(allInputs.length, DOMAIN.stateCount);
+  assert.deepEqual(allInputs[0], { x: -32, y: -32 });
+  assert.deepEqual(allInputs.at(-1), { x: 32, y: 32 });
+  const report = analyze('true', 'true', mission);
+  assert.equal(report.error, undefined);
+  assert.equal(report.valid, true);
+  assert.deepEqual(report.initial, { pass: true, checkedCount: DOMAIN.stateCount });
+  assert.equal(report.checkedStateCount, DOMAIN.stateCount);
+  assert.equal(report.traces.length, 3);
+  assert.deepEqual(report.traces.map((run) => run.initial), traceInputs);
+  assert.ok(report.traces.every((run) => run.traceStatus === 'terminated' && run.trace.length === 2));
+  assert.equal(transitions, 65 + 3, 'one preservation step for each x=0 state, plus only three displayed traces');
+  assert.deepEqual(getTraceInputs(level({ initialCondition: 'true' })), allInputs.slice(0, 3));
+});
+
+test('preconditions include negative coordinates and initial failures outside trace samples still cause duds', () => {
+  const mission = level({
+    initialCondition: 'x >= 0 && y == -1',
+    traceInputs: [{ x: 0, y: -1 }, { x: 1, y: -1 }],
+    guardSource: 'false',
+  });
+  assert.deepEqual(getInitialStates(mission), Array.from({ length: 33 }, (_, x) => ({ x, y: -1 })));
+  const report = analyze('x >= 0 && x <= 2 && y == -1', 'true', mission);
+  assert.equal(report.error, undefined);
+  assert.deepEqual(report.initial, { pass: false, checkedCount: 33, before: { x: 3, y: -1 } });
+  assert.equal(report.preservation.pass, true);
+  assert.equal(report.goal.pass, true);
+  assert.equal(report.valid, false);
+  assert.ok(report.traces.every((run) => evaluate(parseExpression('x <= 2'), run.initial)));
+  const battle = createBattle(mission);
+  const command = order(battle, 'x >= 0 && x <= 2 && y == -1', 'true', 'salvo');
+  assert.equal(command.reason, 'invalid-invariant');
+  assert.equal(command.dud, true);
+  assert.equal(command.cost, 1);
+  assert.equal(command.battle.remaining, battle.remaining - 1);
+  assert.deepEqual(command.shots, []);
+  const accepted = analyze('x >= 0 && y == -1', 'true', mission);
+  assert.equal(accepted.valid, true);
+  assert.equal(accepted.initial.checkedCount, 33);
+  assert.deepEqual(getTraceInputs(level({ initialCondition: 'x == -2 && y == -3' })), [{ x: -2, y: -3 }]);
+});
+
+test('invalid preconditions and representative inputs return structured localized errors', () => {
+  const cases = [
+    ['ambiguous-initial-inputs', { initialCondition: 'true', initialStates: [{ x: 0, y: 0 }] }],
+    ['empty-initial-condition', { initialCondition: 'false' }],
+    ['empty-initial-condition', { initialCondition: 'x > 32' }],
+    ['predicate-type', { initialCondition: 'x + 1' }],
+    ['unsupported-character', { initialCondition: 'x = 0' }],
+    ['missing-expression', { initialCondition: true }],
+    ['zero-remainder-divisor', { initialCondition: 'x % y == 0' }],
+    ['invalid-trace-inputs', { initialCondition: 'true', traceInputs: [] }],
+    ['invalid-trace-inputs', { initialCondition: 'true', traceInputs: null }],
+    ['invalid-trace-inputs', { initialCondition: 'true', traceInputs: {} }],
+    ['invalid-trace-input', { initialCondition: 'true', traceInputs: [{ x: 33, y: 0 }] }],
+    ['invalid-trace-input', { initialCondition: 'true', traceInputs: [{ x: 0.5, y: 0 }] }],
+    ['invalid-trace-input', { initialCondition: 'true', traceInputs: [undefined] }],
+    ['duplicate-trace-input', { initialCondition: 'true', traceInputs: [{ x: 1, y: 2 }, { x: 1, y: 2 }] }],
+    ['trace-input-excluded', { initialCondition: 'x >= 0', traceInputs: [{ x: -1, y: 0 }] }],
+  ];
+  for (const [errorCode, overrides] of cases) {
+    const mission = level(overrides);
+    const error = captureError(() => getTraceInputs(mission));
+    assert.equal(error.errorCode, errorCode);
+    assert.equal(captureError(() => createBattle(mission)).errorCode, errorCode);
+    const report = analyze('true', 'true', mission);
+    assert.equal(report.errorCode, errorCode);
+    assert.equal(report.valid, false);
+    assert.deepEqual(report.initial, { pass: null });
+    assert.deepEqual(report.traces, []);
+    assert.equal(formatEngineError(error), error.message);
+    assert.doesNotMatch(formatEngineError(report, 'en'), /[가-힣]/);
+    assert.notEqual(formatEngineError(report, 'en'), report.error);
+  }
+  const typed = analyze('true', 'true', level({ initialCondition: 'x + 1' }));
+  assert.equal(formatEngineError(typed, 'en'), 'Initial precondition: enter a Boolean expression.');
+  assert.ok(getInitialStates(level({ initialCondition: 'y != 0 && x % y == 0' })).every(({ y }) => y !== 0));
+});
+
+test('battle normalization preserves preconditions and copied trace inputs without changing legacy finite sets', () => {
+  const mission = level({ initialCondition: 'x >= 0 && y >= 0', traceInputs: [{ x: 0, y: 0 }, { x: 2, y: 1 }] });
+  const battle = createBattle(mission);
+  assert.equal(battle.level.initialCondition, mission.initialCondition);
+  assert.equal(Object.hasOwn(battle.level, 'initialStates'), false);
+  assert.notEqual(battle.level.traceInputs, mission.traceInputs);
+  assert.notEqual(battle.level.traceInputs[0], mission.traceInputs[0]);
+  assert.notEqual(battle.level.initial, battle.level.traceInputs[0]);
+  mission.traceInputs[0].x = 9;
+  mission.traceInputs.push({ x: 3, y: 3 });
+  const exposed = getTraceInputs(battle.level);
+  exposed[0].y = 7;
+  battle.level.initial.x = -32;
+  assert.deepEqual(battle.level.traceInputs, [{ x: 0, y: 0 }, { x: 2, y: 1 }]);
+  const report = analyze('true', 'true', battle.level);
+  assert.equal(report.valid, true);
+  assert.equal(report.initial.checkedCount, 33 * 33);
+  assert.deepEqual(report.traces.map((run) => run.initial), battle.level.traceInputs);
+  const command = order(battle, 'true', 'true', 'single');
+  assert.equal(command.reason, 'fired');
+  assert.equal(command.analysis.initial.checkedCount, 33 * 33);
+
+  const finite = level({ initialStates: [{ x: 0, y: 0 }, { x: 0, y: 1 }], traceInputs: [{ x: 0, y: 0 }] });
+  assert.deepEqual(getTraceInputs(finite), finite.initialStates);
+  assert.deepEqual(getTraceInputs(createBattle(finite).level), finite.initialStates);
+  assert.deepEqual(getTraceInputs(level()), [{ x: 0, y: 0 }]);
 });

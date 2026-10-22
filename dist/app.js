@@ -1,4 +1,4 @@
-import { parseExpression, evaluate, initialStatesForLevel, createBattle, order, formatEngineError } from './engine.js';
+import { parseExpression, evaluate, initialStatesForLevel, traceInputsForLevel, createBattle, order, formatEngineError } from './engine.js';
 import { LEVELS } from './levels.js';
 import { LANGUAGE_STORAGE_KEY, resolveLanguage, translate } from './i18n.js';
 import { applyStaticTranslations } from './ui-copy.js';
@@ -13,6 +13,7 @@ const unitIcons = {
   friendly: '<svg class="unit-icon" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 5l12 5v10c0 7-7 12-12 15C15 32 8 27 8 20V10z" fill="currentColor" opacity=".14"/><path d="M20 5l12 5v10c0 7-7 12-12 15C15 32 8 27 8 20V10z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 13v13m-6-6h12" stroke="currentColor" stroke-width="2.5"/></svg>'
 };
 let levelIndex = 0, selectedInitialIndex = 0, battle, lastAnalysis = null, records = [], selectedTargets = new Set();
+let traceInputs = [], allowedInputCount = 0;
 let preview = true, traceVisible = false, busy = false, sound = false, audioContext = null;
 let witness = null, impacts = [], hintCount = 1, turnToken = 0, toastTimer;
 const BEST_STORAGE_KEY = 'danger-close-best-math-v2';
@@ -40,7 +41,7 @@ function closeDialog(id) { $(id).close(); }
 function expression(source) { try { return source.trim() ? parseExpression(source) : null; } catch { return null; } }
 function matches(ast, p) { try { return ast && evaluate(ast, p) === true; } catch { return false; } }
 function traceForLevel() {
-  const l = level(), guard = parseExpression(l.guardSource), trace = [initialStatesForLevel(l)[selectedInitialIndex]];
+  const l = level(), guard = parseExpression(l.guardSource), trace = [{...traceInputs[selectedInitialIndex]}];
   for (let n=0; n<256 && evaluate(guard, trace.at(-1)); n++) trace.push(l.step(trace.at(-1)));
   return trace;
 }
@@ -61,7 +62,14 @@ function renderTabs() {
   $('mission-tabs').innerHTML = LEVELS.map((l,i)=>`<button class="mission-tab ${i===levelIndex?'active':''}" data-level="${i}" ${busy?'disabled':''} aria-current="${i===levelIndex?'step':'false'}"><span class="mission-index">${esc(l.id)}</span><span class="mission-name">${esc(levelCopy(l).name)}<small>${esc(l.subtitle)}</small></span><span class="mission-check">${best[l.id]!==undefined?`${best[l.id]} PT`:'↗'}</span></button>`).join('');
 }
 function renderInitialInputs() {
-  $('initial-inputs').innerHTML = initialStatesForLevel(level()).map((p,i)=>`<button class="initial-input ${i===selectedInitialIndex?'active':''}" data-initial-index="${i}" aria-pressed="${i===selectedInitialIndex}" aria-label="${esc(t('inputCase',{number:i+1,point:point(p)}))}"><span>${pad(i+1)}</span><code>${point(p)}</code></button>`).join('');
+  const condition=level().initialCondition, predicate=condition!==undefined;
+  $('initial-condition-panel').hidden=!predicate;
+  $('initial-condition-description').textContent=predicate?t(condition.trim()==='true'?'unrestrictedInputs':'predicateInputs'):'';
+  $('initial-condition-code').textContent=predicate?`P(x, y) = ${condition}`:'';
+  $('initial-scope').textContent=predicate?t('initialScope',{count:allowedInputCount}):'';
+  $('initial-input-label').textContent=t(predicate?'traceSamples':'allowedInputs');
+  $('initial-input-help').textContent=t(predicate?'traceSamplesHelp':'allowedInputsHelp');
+  $('initial-inputs').innerHTML = traceInputs.map((p,i)=>`<button class="initial-input ${i===selectedInitialIndex?'active':''}" data-initial-index="${i}" aria-pressed="${i===selectedInitialIndex}" aria-label="${esc(t('inputCase',{number:i+1,point:point(p)}))}"><span>${pad(i+1)}</span><code>${point(p)}</code></button>`).join('');
 }
 function renderMap() {
   const l=level(), candidates=previewCandidates(), candidateSet=new Set(candidates.map(key));
@@ -83,9 +91,11 @@ function renderMap() {
   }
   const xy = p => `${p.x*100+50},${(l.size-1-p.y)*100+50}`;
   let overlay='';
+  $('trace-summary').hidden=!traceVisible;
   if(traceVisible) {
-    const t=traceForLevel(), start=t[0]; overlay += `<polyline class="trace-path" points="${t.map(xy).join(' ')}"/><circle class="trace-start" cx="${start.x*100+50}" cy="${(l.size-1-start.y)*100+50}" r="11"/>`;
-    const end=t.at(-1); overlay += `<circle class="trace-end" cx="${end.x*100+50}" cy="${(l.size-1-end.y)*100+50}" r="15"/>`;
+    const t=traceForLevel(), start=t[0]; overlay += `<defs><clipPath id="trace-bounds"><rect width="${l.size*100}" height="${l.size*100}"/></clipPath></defs><g clip-path="url(#trace-bounds)"><polyline class="trace-path" points="${t.map(xy).join(' ')}"/><circle class="trace-start" cx="${start.x*100+50}" cy="${(l.size-1-start.y)*100+50}" r="11"/>`;
+    const end=t.at(-1); overlay += `<circle class="trace-end" cx="${end.x*100+50}" cy="${(l.size-1-end.y)*100+50}" r="15"/></g>`;
+    $('trace-summary').textContent=translate(language,'traceSummary',{start:point(start),end:point(end),count:t.length-1})+(t.some(p=>p.x<0||p.y<0||p.x>=l.size||p.y>=l.size)?translate(language,'traceOffBoard'):'');
   }
   for(const p of impacts) overlay+=`<path class="shell-trail" d="M -30 ${l.size*100+50} Q ${p.x*100-100} ${Math.max(-50,(l.size-1-p.y)*100-180)} ${xy(p).replace(',',' ')}"/>`;
   cells.push(`<svg class="trace-layer" viewBox="0 0 ${l.size*100} ${l.size*100}" aria-hidden="true">${overlay}</svg>`);
@@ -108,7 +118,7 @@ function renderStats() {
 function renderChecks() {
   $('verification-strip').innerHTML=['initial','preservation','goal'].map(k=>{
     const check=lastAnalysis?.[k], pending=Boolean(lastAnalysis?.error)||!check||typeof check.pass!=='boolean';
-    const detail=pending?t(lastAnalysis?.error?'incomplete':'afterOrder'):check.pass?t(k==='initial'?'initialPassed':'passed',{count:check.checkedCount}):t(k==='goal'?'unproven':'dud');
+    const detail=pending?t(lastAnalysis?.error?'incomplete':'afterOrder'):check.pass?t(k==='initial'?(level().initialCondition!==undefined?'initialDomainPassed':'initialPassed'):'passed',{count:check.checkedCount}):t(k==='goal'?'unproven':'dud');
     return `<div class="check-item ${pending?'pending':check.pass?'pass':'fail'}"><span class="check-icon">${pending?'○':check.pass?'✓':'×'}</span><span class="check-title">${esc(t(k))}</span><span class="check-detail">${esc(detail)}</span></div>`;
   }).join('');
 }
@@ -152,6 +162,7 @@ function invalidateAnalysis() {
 }
 function loadLevel(index) {
   levelIndex=index; selectedInitialIndex=0; battle=createBattle(level()); lastAnalysis=null;records=[];selectedTargets=new Set();witness=null;impacts=[];hintCount=1;busy=false;turnToken++;
+  traceInputs=traceInputsForLevel(level()); allowedInputCount=initialStatesForLevel(level()).length;
   $('invariant-input').value=level().starter; $('goal-input').value='';
   $('operation-label').textContent=`OPERATION ${level().id} / ${pad(LEVELS.length)}`;
   $('mission-brief').textContent=levelCopy().brief;
@@ -192,7 +203,7 @@ async function fire(mode) {
     if(result.dud) {
       const initial=lastAnalysis?.initial?.pass===false;
       const check=initial?lastAnalysis.initial:lastAnalysis.preservation;
-      witness=check?.before || (initial?initialStatesForLevel(level())[0]:null);
+      witness=check?.before || (initial?traceInputs[0]:null);
       feedbackState={type:'dud',mode,analysis:lastAnalysis};
       records.unshift({...feedbackState,kind:'dud',expression:$('invariant-input').value});
       playSound(true);

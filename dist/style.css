@@ -186,6 +186,10 @@ p.mission-brief { margin: 0; padding: 15px 0; color: var(--muted); font-size: 12
 .initial-input > code { font: 12px var(--mono); }
 .initial-input.active { border-color: #91a976; background: #293522; }
 .initial-input:focus-visible { outline: 2px solid var(--orange-bright); outline-offset: 2px; }
+.initial-condition-panel { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+.initial-condition-panel > strong { display: block; color: var(--cream); font-size: 13px; line-height: 1.6; }
+.initial-condition-panel > code { display: block; margin-top: 7px; color: #d4d7bf; font: 12px var(--mono); overflow-wrap: anywhere; }
+.initial-condition-panel .input-help, .trace-summary { color: #aab39a; }
 .code-line { display: block; min-height: 1.95em; }
 .line-number { display: inline-block; min-width: 25px; padding-right: 13px; color: #545e4c; font-size: 10px; user-select: none; }
 .code-keyword { color: #c3ba80; }

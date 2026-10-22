@@ -123,4 +123,48 @@ export const LEVELS = [
     solution: 'x >= 0 && y >= 0 && (x + y * y == 2 || x + y * y == 5 || x + y * y == 8)',
     goalSolution: '(x == 1 && y == 1) || (x == 1 && y == 2) || (x == 4 && y == 2)',
   },
+  {
+    id: '05',
+    name: '좌표 표준화',
+    subtitle: 'COORDINATE NORMALIZATION',
+    brief: '모든 정수 쌍 (x, y)을 초기 입력으로 허용한다. x를 3으로 나눈 0 이상 나머지로 표준화하고 y를 0으로 복귀시켜라. 표시된 세 경로는 대표 예시일 뿐이다.',
+    size: 9,
+    initialCondition: 'true',
+    traceInputs: [{ x: 6, y: 3 }, { x: -5, y: 2 }, { x: 2, y: -3 }],
+    guardSource: 'x < 0 || x >= 3 || y != 0',
+    step: ({ x, y }) => {
+      if (x < 0) {
+        x = x + 3;
+      } else if (x >= 3) {
+        x = x - 3;
+      }
+      if (y < 0) {
+        y = y + 1;
+      } else if (y > 0) {
+        y = y - 1;
+      }
+      return { x, y };
+    },
+    code: 'while (x < 0 || x >= 3 || y != 0) {\n  if (x < 0) {\n    x = x + 3;\n  } else if (x >= 3) {\n    x = x - 3;\n  }\n  if (y < 0) {\n    y = y + 1;\n  } else if (y > 0) {\n    y = y - 1;\n  }\n}',
+    commands: 6,
+    enemies: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }],
+    allies: [{ x: 0, y: 1 }, { x: 1, y: 2 }, { x: 3, y: 0 }],
+    starter: 'x >= 0 && y >= 0',
+    hints: [
+      'x가 음수이면 3을 더하고, 3 이상이면 3을 빼라. y는 매회 0에 한 칸 접근한다. 음수 x도 최종 나머지는 0, 1, 2 중 하나이다.',
+      '초기 조건 P = true는 모든 정수 쌍을 허용한다. 초기 성립을 통과하려면 I도 모든 초기 상태에서 참이어야 한다. 대표 경로는 실행 예시일 뿐이다.',
+      '검증 해법: true. 종료 조건 x >= 0 && x < 3 && y == 0이 세 적 좌표를 정확히 결정한다.',
+    ],
+    en: {
+      name: 'Coordinate Normalization',
+      brief: 'Accept any integer pair (x, y). Normalize x to its nonnegative remainder modulo 3 and return y to 0. The three displayed paths are representative samples.',
+      hints: [
+        'Add 3 when x is negative; subtract 3 when x is at least 3. Move y one step toward 0 per iteration. Even a negative initial x ends with a remainder of 0, 1, or 2.',
+        'The initial condition P = true admits every integer pair. To pass the initial check, I must hold for every initial state. The representative paths are execution samples only.',
+        'Verified solution: true. The exit condition x >= 0 && x < 3 && y == 0 identifies exactly the three enemy coordinates.',
+      ],
+    },
+    solution: 'true',
+    goalSolution: 'x >= 0 && x < 3 && y == 0',
+  },
 ];

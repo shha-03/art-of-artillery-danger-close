@@ -14,8 +14,8 @@ const MAX_TOKENS = 1024;
 const MAX_DEPTH = 128;
 
 const ERROR_LABELS = {
-  ko: { arithmetic: '산술 결과', literal: '숫자', invariant: '불변식', goal: '목표', guard: '반복 조건', x: 'x', y: 'y' },
-  en: { arithmetic: 'Arithmetic result', literal: 'Number literal', invariant: 'Invariant', goal: 'Goal', guard: 'Loop guard', x: 'x', y: 'y' },
+  ko: { arithmetic: '산술 결과', literal: '숫자', invariant: '불변식', goal: '목표', guard: '반복 조건', initialCondition: '초기 사전조건', x: 'x', y: 'y' },
+  en: { arithmetic: 'Arithmetic result', literal: 'Number literal', invariant: 'Invariant', goal: 'Goal', guard: 'Loop guard', initialCondition: 'Initial precondition', x: 'x', y: 'y' },
 };
 const errorLabel = (label, language) => Object.hasOwn(ERROR_LABELS[language], label)
   ? ERROR_LABELS[language][label] : String(label);
@@ -40,6 +40,12 @@ const ERROR_MESSAGES = {
     'invalid-initial': (p) => `초기 좌표 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
     'invalid-initial-states': () => '초기 입력 형식 오류. 하나 이상의 좌표를 배열로 지정하라.',
     'duplicate-initial-state': (p) => `초기 입력 중복. 좌표 (${p.x}, ${p.y})는 한 번만 지정하라.`,
+    'ambiguous-initial-inputs': () => '초기 입력 지정 충돌. initialCondition과 initialStates 중 하나만 지정하라.',
+    'empty-initial-condition': () => '초기 사전조건을 만족하는 좌표 없음. 검증 범위 안에 허용 입력을 지정하라.',
+    'invalid-trace-inputs': () => '대표 실행 입력 형식 오류. 하나 이상의 좌표를 배열로 지정하라.',
+    'invalid-trace-input': (p) => `대표 실행 좌표 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
+    'duplicate-trace-input': (p) => `대표 실행 입력 중복. 좌표 (${p.x}, ${p.y})는 한 번만 지정하라.`,
+    'trace-input-excluded': (p) => `대표 실행 입력 (${p.x}, ${p.y})은 초기 사전조건을 위반한다. 허용 좌표를 지정하라.`,
     'invalid-board-size': (p) => `전장 크기 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
     'missing-step': () => '프로그램의 한 단계 실행 함수 누락.',
     'missing-coordinate': () => '프로그램 실행 결과에 좌표 누락.',
@@ -69,6 +75,12 @@ const ERROR_MESSAGES = {
     'invalid-initial': (p) => `Initial coordinates invalid. Use integers from ${p.min} to ${p.max}.`,
     'invalid-initial-states': () => 'Initial input format invalid. Supply a nonempty array of coordinates.',
     'duplicate-initial-state': (p) => `Duplicate initial input. Assign coordinates (${p.x}, ${p.y}) only once.`,
+    'ambiguous-initial-inputs': () => 'Initial input definitions conflict. Specify either initialCondition or initialStates.',
+    'empty-initial-condition': () => 'No coordinates satisfy the initial precondition. Permit at least one input within the verification domain.',
+    'invalid-trace-inputs': () => 'Trace input format invalid. Supply a nonempty array of coordinates.',
+    'invalid-trace-input': (p) => `Trace coordinates invalid. Use integers from ${p.min} to ${p.max}.`,
+    'duplicate-trace-input': (p) => `Duplicate trace input. Assign coordinates (${p.x}, ${p.y}) only once.`,
+    'trace-input-excluded': (p) => `Trace input (${p.x}, ${p.y}) violates the initial precondition. Select permitted coordinates.`,
     'invalid-board-size': (p) => `Board size invalid. Use an integer from ${p.min} to ${p.max}.`,
     'missing-step': () => 'Program transition function missing.',
     'missing-coordinate': () => 'Program transition returned no coordinates.',
@@ -276,8 +288,27 @@ function predicate(source, label) {
   return ast;
 }
 
-/** Return independent copies of every allowed initial input, in authored order. */
+const hasInitialCondition = (level) => level?.initialCondition !== undefined;
+
+/**
+ * Return every allowed initial input, never just the representative traces.
+ * A precondition is evaluated over the full domain in x-then-y order; explicit
+ * finite input sets retain authored order. Both forms return independent copies.
+ */
 export function initialStatesForLevel(level) {
+  if (hasInitialCondition(level)) {
+    if (level.initialStates !== undefined) throw engineError('ambiguous-initial-inputs', {}, TypeError);
+    const condition = predicate(level.initialCondition, 'initialCondition');
+    const initialStates = [];
+    for (let x = DOMAIN.min; x <= DOMAIN.max; x++) {
+      for (let y = DOMAIN.min; y <= DOMAIN.max; y++) {
+        const state = { x, y };
+        if (evaluate(condition, state)) initialStates.push(state);
+      }
+    }
+    if (!initialStates.length) throw engineError('empty-initial-condition', {}, TypeError);
+    return initialStates;
+  }
   const states = level?.initialStates === undefined ? [level?.initial] : level.initialStates;
   if (!Array.isArray(states) || states.length === 0) {
     throw engineError('invalid-initial-states', {}, TypeError);
@@ -294,13 +325,39 @@ export function initialStatesForLevel(level) {
   return initialStates;
 }
 
+function selectTraceInputs(level, initialStates) {
+  if (!hasInitialCondition(level)) return initialStates.map(point);
+  if (level.traceInputs === undefined) return initialStates.slice(0, 3).map(point);
+  if (!Array.isArray(level.traceInputs) || level.traceInputs.length === 0) {
+    throw engineError('invalid-trace-inputs', {}, TypeError);
+  }
+  const allowed = new Set(initialStates.map(key));
+  const seen = new Set();
+  const traceInputs = [];
+  for (const state of level.traceInputs) {
+    if (!inDomain(state)) throw engineError('invalid-trace-input', { min: DOMAIN.min, max: DOMAIN.max }, TypeError);
+    const location = key(state);
+    if (seen.has(location)) throw engineError('duplicate-trace-input', point(state), TypeError);
+    if (!allowed.has(location)) throw engineError('trace-input-excluded', point(state), TypeError);
+    seen.add(location);
+    traceInputs.push(point(state));
+  }
+  return traceInputs;
+}
+
+/** Representative executions are for display only and never limit verification. */
+export function traceInputsForLevel(level) {
+  return selectTraceInputs(level, initialStatesForLevel(level));
+}
+
 function validateLevel(level) {
   const initialStates = initialStatesForLevel(level);
+  const traceInputs = selectTraceInputs(level, initialStates);
   if (!Number.isInteger(level.size) || level.size < 1 || level.size > DOMAIN.max + 1) {
     throw engineError('invalid-board-size', { min: 1, max: DOMAIN.max + 1 }, TypeError);
   }
   if (typeof level.step !== 'function') throw engineError('missing-step', {}, TypeError);
-  return initialStates;
+  return { initialStates, traceInputs };
 }
 
 function successor(level, before) {
@@ -327,8 +384,9 @@ function traceProgram(level, guard, initial) {
  * S = I && !guard is checked over the WHOLE domain. Only candidates are
  * projected onto the visible board. A goal witness may therefore be off-board.
  * A preservation witness may be unreachable from every allowed initial input.
- * traces contains an actual execution for each input, never proof evidence.
- * trace/traceStatus retain the first input's execution for legacy consumers.
+ * traces contains representative executions, never proof evidence. Finite input
+ * lists retain every trace; preconditions need not trace every permitted state.
+ * trace/traceStatus retain the first displayed execution for legacy consumers.
  */
 export function analyze(source, goalSource, level) {
   const result = {
@@ -343,11 +401,11 @@ export function analyze(source, goalSource, level) {
     checkedStateCount: 0,
   };
   try {
-    const initialStates = validateLevel(level);
+    const { initialStates, traceInputs } = validateLevel(level);
     const invariant = predicate(source, 'invariant');
     const goal = predicate(goalSource, 'goal');
     const guard = predicate(level.guardSource, 'guard');
-    result.traces = initialStates.map((initial) => ({
+    result.traces = traceInputs.map((initial) => ({
       initial: point(initial),
       ...traceProgram(level, guard, initial),
     }));
@@ -417,21 +475,26 @@ function updateBattleStatus(battle) {
 
 /** Initial arrays are preserved in battle.level; battle.enemies/allies are alive. */
 export function createBattle(level) {
-  const initialStates = validateLevel(level);
+  const { initialStates, traceInputs } = validateLevel(level);
   predicate(level.guardSource, 'guard');
   const budget = level.commands ?? level.budget ?? 6;
   if (!Number.isSafeInteger(budget) || budget < 0) throw engineError('invalid-command-budget', {}, TypeError);
   const occupied = new Set();
   const enemies = copyUnits(level.enemies ?? [], level.size, occupied);
   const allies = copyUnits(level.allies ?? [], level.size, occupied);
+  const normalizedLevel = {
+    ...level,
+    initial: point(traceInputs[0]),
+    traceInputs: traceInputs.map(point),
+    enemies: enemies.map(point),
+    allies: allies.map(point),
+  };
+  // Keep the precondition as the source of truth. Adding its enumerated states
+  // would create two conflicting initial-input definitions on the next order.
+  if (hasInitialCondition(level)) delete normalizedLevel.initialStates;
+  else normalizedLevel.initialStates = initialStates.map(point);
   return updateBattleStatus({
-    level: {
-      ...level,
-      initial: point(initialStates[0]),
-      initialStates: initialStates.map(point),
-      enemies: enemies.map(point),
-      allies: allies.map(point),
-    },
+    level: normalizedLevel,
     budget,
     remaining: budget,
     enemies,

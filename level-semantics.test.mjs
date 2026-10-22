@@ -49,11 +49,11 @@ function domainStatesWhere(predicate) {
   return result;
 }
 
-test('the campaign contains the four specified mathematical loops', () => {
-  assert.deepEqual(LEVELS.map((level) => level.id).sort(), Object.keys(SPECIFICATIONS));
+test('the campaign preserves the four mathematical loops and adds coordinate normalization', () => {
+  assert.deepEqual(LEVELS.map((level) => level.id).sort(), [...Object.keys(SPECIFICATIONS), '05']);
 });
 
-for (const level of LEVELS) {
+for (const level of LEVELS.filter((level) => SPECIFICATIONS[level.id])) {
   test(`${level.id}: every input's displayed program and step trace match the mathematical result`, () => {
     const specification = SPECIFICATIONS[level.id];
     assert.ok(specification, 'unknown mission');
@@ -159,3 +159,131 @@ for (const level of LEVELS) {
     assert.equal(salvo.battle.score, 8);
   });
 }
+
+const normalizationLevel = () => {
+  const level = LEVELS.find((candidate) => candidate.id === '05');
+  assert.ok(level, 'coordinate normalization mission must exist');
+  return level;
+};
+
+// JavaScript's % preserves the dividend's sign; this is the nonnegative
+// Euclidean remainder required by the mathematical normalization problem.
+const normalizedResult = ({ x }) => ({ x: ((x % 3) + 3) % 3, y: 0 });
+const inDomain = ({ x, y }) => Number.isInteger(x) && Number.isInteger(y)
+  && x >= DOMAIN.min && x <= DOMAIN.max && y >= DOMAIN.min && y <= DOMAIN.max;
+
+function runNormalizationSteps(level, initial) {
+  const guard = parseExpression(level.guardSource);
+  let current = { ...initial };
+  let steps = 0;
+  while (evaluate(guard, current)) {
+    assert.ok(inDomain(current), `execution left the domain from ${key(initial)}`);
+    assert.ok(steps < DOMAIN.stateCount, `execution failed to terminate from ${key(initial)}`);
+    current = level.step({ ...current });
+    steps++;
+  }
+  assert.ok(inDomain(current));
+  return current;
+}
+
+test('05: displayed code and step execution normalize negative values, boundaries, and representative inputs', () => {
+  const level = normalizationLevel();
+  const program = new Script(level.code, { filename: 'mission-05.js' });
+  const cases = [
+    ...level.traceInputs,
+    { x: DOMAIN.min, y: DOMAIN.min }, { x: DOMAIN.min, y: DOMAIN.max },
+    { x: DOMAIN.max, y: DOMAIN.min }, { x: DOMAIN.max, y: DOMAIN.max },
+    { x: -31, y: 0 }, { x: -30, y: 0 }, { x: -3, y: -1 },
+    { x: -2, y: 1 }, { x: -1, y: 0 }, { x: 0, y: 0 },
+    { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 1 },
+    { x: 4, y: -1 }, { x: 30, y: 0 }, { x: 31, y: 0 },
+  ];
+  for (const initial of cases) {
+    const expected = normalizedResult(initial);
+    const context = { ...initial };
+    program.runInNewContext(context, { timeout: 100 });
+    assert.deepEqual({ x: context.x, y: context.y }, expected, `displayed code for ${key(initial)}`);
+    assert.deepEqual(runNormalizationSteps(level, initial), expected, `step execution for ${key(initial)}`);
+  }
+});
+
+test('05: every one of the 4225 domain inputs terminates in-domain at its Euclidean remainder', () => {
+  const level = normalizationLevel();
+  const endpoints = new Set();
+  const inputs = domainStatesWhere(() => true);
+  assert.equal(inputs.length, 4225);
+  for (const initial of inputs) {
+    const endpoint = runNormalizationSteps(level, initial);
+    assert.deepEqual(endpoint, normalizedResult(initial), `result for ${key(initial)}`);
+    assert.ok(onBoard(endpoint, level.size));
+    endpoints.add(key(endpoint));
+  }
+  assert.deepEqual([...endpoints].sort(), ['0,0', '1,0', '2,0']);
+  assert.deepEqual(keys(level.enemies), [...endpoints].sort());
+});
+
+test('05: true proves exactly the three actual endpoints and the authored ensures over the full domain', () => {
+  const level = normalizationLevel();
+  assert.equal(level.initialCondition, 'true');
+  assert.equal(level.initialStates, undefined);
+  assert.equal(level.solution, 'true');
+  const expected = ['0,0', '1,0', '2,0'];
+  const result = analyze(level.solution, level.goalSolution, level);
+  const invariant = parseExpression(level.solution);
+  const goal = parseExpression(level.goalSolution);
+  const guard = parseExpression(level.guardSource);
+  assert.equal(result.error, undefined);
+  assert.equal(result.valid, true);
+  assert.equal(result.initial.pass, true);
+  assert.equal(result.initial.checkedCount, 4225);
+  assert.equal(result.preservation.pass, true);
+  assert.equal(result.goal.pass, true);
+  assert.equal(result.checkedStateCount, DOMAIN.stateCount);
+  assert.equal(result.exitStateCount, 3);
+  assert.deepEqual(keys(result.candidates), expected);
+  assert.deepEqual(keys(level.enemies), expected);
+  assert.deepEqual(keys(domainStatesWhere((state) => evaluate(goal, state))), expected);
+  assert.deepEqual(keys(domainStatesWhere((state) => evaluate(invariant, state) && !evaluate(guard, state))), expected);
+  assert.ok(level.allies.every((ally) => !expected.includes(key(ally))));
+});
+
+test('05: three representative traces never restrict the initial-state proof to those samples', () => {
+  const level = normalizationLevel();
+  const traceInputs = [{ x: 6, y: 3 }, { x: -5, y: 2 }, { x: 2, y: -3 }];
+  assert.deepEqual(level.traceInputs, traceInputs);
+  const result = analyze(level.solution, level.goalSolution, level);
+  assert.equal(result.initial.checkedCount, 4225);
+  assert.equal(result.traces.length, 3);
+  assert.deepEqual(result.traces.map((execution) => execution.initial), traceInputs);
+  for (const execution of result.traces) {
+    assert.equal(execution.traceStatus, 'terminated');
+    assert.deepEqual(execution.trace[0], execution.initial);
+    assert.deepEqual(execution.trace.at(-1), normalizedResult(execution.initial));
+  }
+
+  const excludesUnshownCorner = analyze('x != -32 || y != -32', level.goalSolution, level);
+  assert.equal(excludesUnshownCorner.initial.pass, false);
+  assert.equal(excludesUnshownCorner.initial.checkedCount, 4225);
+  assert.deepEqual(excludesUnshownCorner.initial.before, { x: -32, y: -32 });
+  assert.ok(!keys(traceInputs).includes(key(excludesUnshownCorner.initial.before)));
+});
+
+test('05: the nonnegative starter fails initialization and cannot fire despite valid exit targets', () => {
+  const level = normalizationLevel();
+  assert.equal(level.starter, 'x >= 0 && y >= 0');
+  const result = analyze(level.starter, level.goalSolution, level);
+  assert.equal(result.error, undefined);
+  assert.equal(result.valid, false);
+  assert.equal(result.initial.pass, false);
+  assert.equal(result.initial.checkedCount, 4225);
+  assert.ok(result.initial.before.x < 0 || result.initial.before.y < 0);
+  assert.equal(result.preservation.pass, true);
+  assert.equal(result.goal.pass, true);
+  assert.deepEqual(keys(result.candidates), keys(level.enemies));
+  const shot = order(createBattle(level), level.starter, level.goalSolution, 'salvo');
+  assert.equal(shot.reason, 'invalid-invariant');
+  assert.equal(shot.dud, true);
+  assert.equal(shot.cost, 1);
+  assert.equal(shot.shots.length, 0);
+  assert.equal(shot.battle.enemyKills, 0);
+});
