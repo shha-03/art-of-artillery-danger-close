@@ -19,16 +19,16 @@ function expressionError(message, position) {
 
 function integer(value, description = '산술 결과') {
   if (!Number.isSafeInteger(value)) {
-    throw new RangeError(`${description}는 정확하게 표현할 수 있는 정수여야 합니다.`);
+    throw new RangeError(`${description}: 정확히 표현 가능한 정수 범위 위반.`);
   }
   return value;
 }
 
 function tokenize(source) {
   if (typeof source !== 'string' || !source.trim()) {
-    throw expressionError('수식을 입력해 주세요.');
+    throw expressionError('수식 누락. 사격 조건을 입력하라.');
   }
-  if (source.length > MAX_SOURCE_LENGTH) throw expressionError('수식이 너무 깁니다.');
+  if (source.length > MAX_SOURCE_LENGTH) throw expressionError('수식 길이 한도 초과. 조건을 축약하라.');
   const tokens = [];
   let position = 0;
   while (position < source.length) {
@@ -36,10 +36,10 @@ function tokenize(source) {
     const whitespace = /^\s+/.exec(rest);
     if (whitespace) { position += whitespace[0].length; continue; }
     const match = /^(?:\d+|[A-Za-z_][A-Za-z_0-9]*|&&|\|\||==|!=|<=|>=|[+*%<>()!\-])/.exec(rest);
-    if (!match) throw expressionError(`지원하지 않는 문자 '${source[position]}'입니다.`, position);
+    if (!match) throw expressionError(`미지원 문자 '${source[position]}' 확인. 지원 문법을 대조하라.`, position);
     tokens.push({ value: match[0], position });
     position += match[0].length;
-    if (tokens.length > MAX_TOKENS) throw expressionError('수식에 항목이 너무 많습니다.');
+    if (tokens.length > MAX_TOKENS) throw expressionError('수식 항목 한도 초과. 조건을 축약하라.');
   }
   tokens.push({ value: '<end>', position: source.length });
   return tokens;
@@ -54,7 +54,7 @@ export function parseExpression(source) {
   const take = () => tokens[index++];
   const needType = (node, expected, token) => {
     if (node.valueType !== expected) {
-      throw expressionError(`'${token.value}'에는 ${expected === 'integer' ? '정수' : '참/거짓'} 식이 필요합니다.`, token.position);
+      throw expressionError(`'${token.value}'의 입력 형식 불일치. ${expected === 'integer' ? '정수' : '참/거짓'} 식을 사용하라.`, token.position);
     }
   };
   function binary(left, token, right) {
@@ -66,7 +66,7 @@ export function parseExpression(source) {
       valueType = 'boolean';
     } else if (op === '==' || op === '!=') {
       if (left.valueType !== right.valueType) {
-        throw expressionError('같은 종류의 값끼리 비교해야 합니다.', token.position);
+        throw expressionError('비교 대상의 형식 불일치. 같은 종류의 값끼리 비교하라.', token.position);
       }
       valueType = 'boolean';
     } else {
@@ -91,7 +91,7 @@ export function parseExpression(source) {
   const parseAdd = () => chain(parseMultiply, ['+', '-']);
   const parseMultiply = () => chain(parseUnary, ['*', '%']);
   function parseUnary() {
-    if (++depth > MAX_DEPTH) throw expressionError('괄호나 단항 연산자가 너무 깊습니다.', peek().position);
+    if (++depth > MAX_DEPTH) throw expressionError('중첩 깊이 한도 초과. 괄호와 단항 연산자를 줄여라.', peek().position);
     try {
       if (['!', '-', '+'].includes(peek().value)) {
         const token = take();
@@ -103,7 +103,7 @@ export function parseExpression(source) {
       const token = take();
       if (token.value === '(') {
         const node = parseOr();
-        if (peek().value !== ')') throw expressionError("닫는 괄호 ')'가 필요합니다.", peek().position);
+        if (peek().value !== ')') throw expressionError("닫는 괄호 ')' 누락. 수식을 보완하라.", peek().position);
         take();
         return node;
       }
@@ -116,11 +116,11 @@ export function parseExpression(source) {
       if (token.value === 'x' || token.value === 'y') {
         return { kind: 'variable', name: token.value, valueType: 'integer' };
       }
-      throw expressionError(`'${token.value}' 위치에 x, y, 숫자 또는 괄호 식이 필요합니다.`, token.position);
+      throw expressionError(`'${token.value}' 위치에 x, y, 숫자 또는 괄호 식을 입력하라.`, token.position);
     } finally { depth--; }
   }
   const ast = parseOr();
-  if (peek().value !== '<end>') throw expressionError(`예상하지 못한 '${peek().value}'입니다.`, peek().position);
+  if (peek().value !== '<end>') throw expressionError(`잘못 배치된 '${peek().value}' 확인. 수식 구성을 점검하라.`, peek().position);
   return ast;
 }
 
@@ -131,7 +131,7 @@ export function parseExpression(source) {
  */
 export function evaluate(ast, state) {
   function visit(node) {
-    if (!node || typeof node !== 'object') throw new TypeError('올바른 수식 트리가 아닙니다.');
+    if (!node || typeof node !== 'object') throw new TypeError('수식 구조 오류.');
     if (node.kind === 'literal') return node.value;
     if (node.kind === 'variable') return integer(state[node.name], node.name);
     if (node.kind === 'unary') {
@@ -150,7 +150,7 @@ export function evaluate(ast, state) {
         case '-': return integer(left - right);
         case '*': return integer(left * right);
         case '%':
-          if (right === 0) throw new RangeError('0으로 나눈 나머지는 정의되지 않습니다.');
+          if (right === 0) throw new RangeError('0으로 나누는 나머지 연산 불가. 제수를 확인하라.');
           return integer(left % right);
         case '==': return left === right;
         case '!=': return left !== right;
@@ -160,7 +160,7 @@ export function evaluate(ast, state) {
         case '>=': return left >= right;
       }
     }
-    throw new TypeError('지원하지 않는 수식 노드입니다.');
+    throw new TypeError('미지원 수식 구조 확인.');
   }
   return visit(ast);
 }
@@ -173,21 +173,21 @@ const onBoard = (s, size) => s.x >= 0 && s.y >= 0 && s.x < size && s.y < size;
 
 function predicate(source, label) {
   const ast = parseExpression(source);
-  if (ast.valueType !== 'boolean') throw expressionError(`${label}은 참/거짓을 나타내는 식이어야 합니다.`);
+  if (ast.valueType !== 'boolean') throw expressionError(`${label}: 참/거짓을 나타내는 식을 입력하라.`);
   return ast;
 }
 
 function validateLevel(level) {
-  if (!level || !inDomain(level.initial)) throw new TypeError('초기 좌표는 -32부터 32 사이의 정수여야 합니다.');
+  if (!level || !inDomain(level.initial)) throw new TypeError('초기 좌표 오류. 허용 범위는 -32부터 32 사이의 정수이다.');
   if (!Number.isInteger(level.size) || level.size < 1 || level.size > DOMAIN.max + 1) {
-    throw new TypeError('전장 크기는 1부터 33 사이의 정수여야 합니다.');
+    throw new TypeError('전장 크기 오류. 허용 범위는 1부터 33 사이의 정수이다.');
   }
-  if (typeof level.step !== 'function') throw new TypeError('프로그램의 한 단계 실행 함수가 필요합니다.');
+  if (typeof level.step !== 'function') throw new TypeError('프로그램의 한 단계 실행 함수 누락.');
 }
 
 function successor(level, before) {
   const after = level.step(point(before));
-  if (!after || typeof after !== 'object') throw new TypeError('프로그램이 좌표를 반환하지 않았습니다.');
+  if (!after || typeof after !== 'object') throw new TypeError('프로그램 실행 결과에 좌표 누락.');
   return point(after);
 }
 
@@ -266,11 +266,11 @@ export function analyze(source, goalSource, level) {
 }
 
 function copyUnits(units, size, occupied) {
-  if (!Array.isArray(units)) throw new TypeError('배치는 좌표 배열이어야 합니다.');
+  if (!Array.isArray(units)) throw new TypeError('배치 형식 오류. 좌표 배열이 필요하다.');
   return units.map((unit) => {
-    if (!inDomain(unit) || !onBoard(unit, size)) throw new TypeError('배치 좌표는 전장 안의 정수여야 합니다.');
+    if (!inDomain(unit) || !onBoard(unit, size)) throw new TypeError('배치 좌표 오류. 전장 안의 정수 좌표가 필요하다.');
     const location = key(unit);
-    if (occupied.has(location)) throw new TypeError('한 좌표에 여러 유닛을 배치할 수 없습니다.');
+    if (occupied.has(location)) throw new TypeError('배치 중복. 한 좌표에 여러 유닛을 배치할 수 없다.');
     occupied.add(location);
     return point(unit);
   });
@@ -288,7 +288,7 @@ export function createBattle(level) {
   validateLevel(level);
   predicate(level.guardSource, '반복 조건');
   const budget = level.commands ?? level.budget ?? 6;
-  if (!Number.isSafeInteger(budget) || budget < 0) throw new TypeError('명령 횟수는 0 이상의 정수여야 합니다.');
+  if (!Number.isSafeInteger(budget) || budget < 0) throw new TypeError('명령 횟수 오류. 0 이상의 정수가 필요하다.');
   const occupied = new Set();
   const enemies = copyUnits(level.enemies ?? [], level.size, occupied);
   const allies = copyUnits(level.allies ?? [], level.size, occupied);
@@ -315,7 +315,7 @@ export function createBattle(level) {
 export function order(battle, invariantSource, goalSource, mode = 'single') {
   const outcome = (fields) => ({ battle, analysis: null, shots: [], dud: false, cost: 0, ...fields });
   if (mode !== 'single' && mode !== 'salvo') {
-    return outcome({ error: 'single 또는 salvo 모드를 선택해 주세요.', reason: 'invalid-mode' });
+    return outcome({ error: '사격 방식 오류. single 또는 salvo를 지정하라.', reason: 'invalid-mode' });
   }
   if (battle.finished) return outcome({ reason: 'finished' });
   const analysis = analyze(invariantSource, goalSource, battle.level);

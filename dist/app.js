@@ -74,7 +74,7 @@ function renderMap() {
   cells.push(`<svg class="trace-layer" viewBox="0 0 ${l.size*100} ${l.size*100}" aria-hidden="true">${overlay}</svg>`);
   $('grid').style.setProperty('--size',l.size); $('grid').innerHTML=cells.join('');
   $('map-sector').textContent=`SECTOR ${String.fromCharCode(65+levelIndex)} · ${pad(l.size)} × ${pad(l.size)}`;
-  $('map-status').textContent = battle.finished ? (battle.cleared?'작전 완료 · 모든 적군 격파':'명령 소진 · 작전 종료') : candidates.length?`포격 후보 ${candidates.length}칸 · 다음 (${candidates[0].x}, ${candidates[0].y}) · ${lastAnalysis?.valid?'초기·유지 검증 완료':'검증 전'}`:'현재 수식의 미포격 후보가 없습니다';
+  $('map-status').textContent = battle.finished ? (battle.cleared?'작전 완료 · 적 전력 격파':'명령 소진 · 작전 종료') : candidates.length?`포격 후보 ${candidates.length}칸 · 다음 (${candidates[0].x}, ${candidates[0].y}) · ${lastAnalysis?.valid?'초기·유지 검증 완료':'검증 대기'}`:'미포격 후보 없음 · 사격 해법을 재검토하라';
   $('preview-button').classList.toggle('active',preview); $('preview-button').setAttribute('aria-pressed',String(preview));
   $('trace-button').classList.toggle('active',traceVisible); $('trace-button').setAttribute('aria-pressed',String(traceVisible));
 }
@@ -86,7 +86,7 @@ function renderStats() {
   $('single-button').disabled=disabled; $('salvo-button').disabled=disabled;
   $('restart-button').disabled=busy; $('invariant-input').disabled=busy||battle.finished; $('goal-input').disabled=busy||battle.finished;
   $('target-enemies').disabled=busy||battle.finished;
-  $('command-note').textContent=battle.finished?'작전이 종료되었습니다. 다시 도전하거나 다음 작전으로 이동하세요.':!$('goal-input').value.trim()?'목표 조건을 지정하면 명령을 하달할 수 있습니다.':'단발·일제사 모두 명령 1회 소모 · Ctrl+Enter 단발 / Ctrl+Shift+Enter 일제사';
+  $('command-note').textContent=battle.finished?'작전 종료. 재투입하거나 다음 작전으로 이동하라.':!$('goal-input').value.trim()?'사격 전 목표 조건을 지정하라.':'단발·일제사 모두 명령 1회 소모 · Ctrl+Enter 단발 / Ctrl+Shift+Enter 일제사';
 }
 function renderChecks() {
   const labels=[['initial','초기 성립'],['preservation','유지'],['goal','목표 보장']];
@@ -101,12 +101,12 @@ function feedback(kind,title,body,detail='') {
 }
 function renderLogs() {
   $('log-count').textContent=`${pad(records.length)} ENTRIES`;
-  $('log-list').innerHTML=records.length?records.map((r,i)=>`<li class="log-entry"><span class="log-marker ${r.kind}"></span><div><strong>${esc(r.title)}</strong><p>${esc(r.body)}</p><code>${esc(r.expression)}</code></div><span class="log-time">#${pad(records.length-i)}</span></li>`).join(''):'<li class="empty-log">명령 대기 중. 전장을 분석하고 첫 포격을 준비하세요.</li>';
+  $('log-list').innerHTML=records.length?records.map((r,i)=>`<li class="log-entry"><span class="log-marker ${r.kind}"></span><div><strong>${esc(r.title)}</strong><p>${esc(r.body)}</p><code>${esc(r.expression)}</code></div><span class="log-time">#${pad(records.length-i)}</span></li>`).join(''):'<li class="empty-log">포대 대기. 전장을 분석하고 사격을 준비하라.</li>';
 }
 function render() {renderTabs();renderStats();renderMap();renderChecks();renderLogs();}
 function invalidateAnalysis() {
   lastAnalysis=null; witness=null; renderChecks();renderMap();renderStats();
-  feedback('ready','새로운 사격 해법입니다.','초기 성립과 유지는 명령 하달 시 검사합니다. 후보 미리보기는 검증 결과가 아닙니다.');
+  feedback('ready','사격 해법 수정. 검증 대기.','초기 성립·유지 검사는 명령 하달 시 실시한다. 후보 미리보기를 검증 결과로 오인하지 마라.');
 }
 function loadLevel(index) {
   levelIndex=index; battle=createBattle(level()); lastAnalysis=null;records=[];selectedTargets=new Set();witness=null;impacts=[];hintCount=1;busy=false;turnToken++;
@@ -114,7 +114,7 @@ function loadLevel(index) {
   $('operation-label').textContent=`OPERATION ${level().id} / ${pad(LEVELS.length)}`;
   $('mission-brief').textContent=level().brief;
   $('program-code').innerHTML=level().code.split('\n').map((line,i)=>`<span class="code-line"><span class="line-number">${pad(i+1)}</span><span>${esc(line).replace(/\b(while|if|else)\b/g,'<span class="code-keyword">$1</span>')}</span></span>`).join('');
-  feedback('ready','전장을 확인하세요.','목표 칸을 선택하거나 ‘적군 전체 선택’을 누른 뒤, 불변식을 보강해 포격하세요.');
+  feedback('ready','포대 전개 완료. 표적을 지정하라.','목표 칸 또는 ‘적군 전체 선택’으로 목표를 지정하라. 불변식을 보강한 뒤 사격 명령을 하달하라.');
   render();
 }
 function setSelectedGoal() {
@@ -133,17 +133,17 @@ function playSound(dud=false) {
 }
 async function fire(mode) {
   if(busy||battle.finished) return;
-  if(!$('goal-input').value.trim()) { flash('전장에서 목표를 선택하거나 ensures를 입력하세요.');$('goal-input').focus();return; }
+  if(!$('goal-input').value.trim()) { flash('목표 미지정. 지도에서 목표를 선택하거나 ensures를 입력하라.');$('goal-input').focus();return; }
   busy=true;renderStats();
   const currentToken=turnToken;
   try {
     const result=order(battle,$('invariant-input').value,$('goal-input').value,mode);
     lastAnalysis=result.analysis || null;
     if(result.error) {
-      busy=false;feedback('error','명령을 확인하세요.',result.error,'명령 횟수는 소모되지 않았습니다.');render();return;
+      busy=false;feedback('error','명령 반려. 입력 조건을 확인하라.',result.error,'명령 횟수 차감 없음.');render();return;
     }
     if(result.reason==='no-candidates' || result.cost===0) {
-      busy=false;feedback('ready','남은 포격 후보가 없습니다.','불변식의 종료 영역에 아직 포격하지 않은 칸이 있는지 확인하세요.','명령 횟수는 소모되지 않았습니다.');render();return;
+      busy=false;feedback('ready','사격 대상 없음.','불변식의 종료 영역과 포격 완료 좌표를 대조하라. 미포격 후보가 필요하다.','명령 횟수 차감 없음.');render();return;
     }
     battle=result.battle;
     const name=mode==='salvo'?'일제사':'단발 포격';
@@ -152,14 +152,14 @@ async function fire(mode) {
       const initial=lastAnalysis?.initial?.pass===false;
       const check=initial?lastAnalysis.initial:lastAnalysis.preservation;
       witness=check?.before || (initial?level().initial:null);
-      const detail=initial?`초기 상태 ${point(witness)}에서 불변식이 거짓입니다.`:`가상 상태 ${point(check?.before)} → ${point(check?.after)}${check?.outsideDomain?' · 검증 세계 이탈':''}`;
-      feedback('error',`${name} 불발 · 명령 −1`,initial?'시작 상태를 포함하도록 불변식을 수정하세요.':'현재 불변식이 허용한 상태에서 한 번 실행한 뒤 관계가 유지되지 않습니다.',detail);
+      const detail=initial?`초기 상태 ${point(witness)} · 불변식 불성립.`:`가상 상태 ${point(check?.before)} → ${point(check?.after)}${check?.outsideDomain?' · 검증 세계 이탈':''}`;
+      feedback('error',`${name} 불발 · 명령 −1`,initial?'초기 상태 누락 확인. 해당 상태를 포함하도록 불변식을 수정하라.':'유지 조건 위반. 제시된 가상 상태의 전후 관계를 대조하고 사격 해법을 보강하라.',detail);
       records.unshift({kind:'dud',title:`${name} · 불발`,body:detail,expression:$('invariant-input').value});
       playSound(true);
     } else {
       impacts=shots;witness=lastAnalysis?.goal?.pass===false?lastAnalysis.goal.before:null;
       const goalPassed=lastAnalysis?.goal?.pass===true;
-      feedback(friendly?'error':goalPassed?'success':'warning',`${name} 완료 · ${shots.length}발 / 명령 −1`,`적군 ${enemy}기 격파 · 아군 ${friendly}기 피해 · 중립 ${neutral}칸`,goalPassed?'선택한 ensures가 검증 세계의 모든 종료 후보에서 보장됩니다.':`목표 미보장: 종료 후보 ${point(lastAnalysis?.goal?.before)}를 아직 배제하지 못했습니다.`);
+      feedback(friendly?'error':goalPassed?'success':'warning',`${name} 완료 · ${shots.length}발 / 명령 −1`,`적군 ${enemy}기 격파 · 아군 ${friendly}기 피해 · 중립 ${neutral}칸`,goalPassed?'목표 보장 확인. 검증 세계의 모든 종료 후보가 ensures를 충족한다.':`목표 미보장. 종료 후보 ${point(lastAnalysis?.goal?.before)}를 배제할 조건을 확보하라.`);
       records.unshift({kind:friendly?'dud':'success',title:`${name} · 적군 ${enemy} / 아군 ${friendly}`,body:`${shots.length}발 발사 · 중립 ${neutral} · 명령 −1${goalPassed?' · 목표 증명 완료':''}`,expression:$('invariant-input').value});
       playSound();
     }
@@ -169,7 +169,7 @@ async function fire(mode) {
     busy=false;impacts=[];render();
     if(battle.finished)showResult();
   } catch(error) {
-    busy=false;feedback('error','명령을 처리하지 못했습니다.',error.message||String(error));renderStats();
+    busy=false;feedback('error','명령 처리 실패. 오류 내용을 확인하라.',error.message||String(error));renderStats();
   }
 }
 function showResult() {
@@ -179,22 +179,22 @@ function showResult() {
     try{localStorage.setItem('danger-close-best-v1',JSON.stringify(best));}catch{}
   }
   $('result-kicker').textContent=clear?'MISSION COMPLETE':'MISSION ENDED';
-  $('result-title').textContent=clear?(battle.friendlyKills?'목표 제거. 아군 피해 발생.':'정밀한 지휘였습니다.'):'다음 해법을 준비하세요.';
-  $('result-copy').textContent=clear?`${level().name} · 모든 적군을 격파했습니다.${battle.friendlyKills?' 아군을 제외하는 관계를 찾아 점수를 높여보세요.':' 아낀 명령이 점수가 됩니다.'}`:'명령을 모두 소모했습니다. 반례와 실행 경로에서 놓친 관계를 찾아보세요.';
+  $('result-title').textContent=clear?(battle.friendlyKills?'적 전력 격파. 아군 피해 발생.':'적 전력 격파. 아군 피해 없음.'):'작전 실패. 사격 해법을 재검토하라.';
+  $('result-copy').textContent=clear?`${level().name} · 적군 전원 격파 확인.${battle.friendlyKills?' 아군을 사격 영역에서 제외할 조건을 보강하라.':' 잔여 명령을 작전 점수에 합산한다.'}`:'명령 소진. 반례와 실행 경로를 분석하고 불변식을 보강한 뒤 재투입하라.';
   $('result-score').textContent=battle.score;
   $('result-stats').innerHTML=`<div><strong>${battle.enemyKills}</strong><span>적군 격파</span></div><div><strong>${battle.friendlyKills}</strong><span>아군 피해</span></div><div><strong>${battle.remaining}</strong><span>남은 명령</span></div>`;
   $('result-next').textContent=levelIndex<LEVELS.length-1?'다음 작전 →':'첫 작전으로 →';
   renderTabs();openDialog('result-dialog');
 }
 function renderHints() {
-  $('hint-list').innerHTML=level().hints.slice(0,hintCount).map((h,i)=>`<div class="hint-item"><span>INTEL ${pad(i+1)}</span><p>${esc(h)}</p></div>`).join('')+(hintCount===level().hints.length?`<div class="hint-item"><span>검증 가능한 예시 해법</span><code>${esc(level().solution)}</code><p>초기·유지를 통과하면 발사할 수 있고, 세 조건을 모두 통과하면 목표도 증명됩니다. 다른 해법도 인정됩니다.</p></div>`:'');
+  $('hint-list').innerHTML=level().hints.slice(0,hintCount).map((h,i)=>`<div class="hint-item"><span>INTEL ${pad(i+1)}</span><p>${esc(h)}</p></div>`).join('')+(hintCount===level().hints.length?`<div class="hint-item"><span>검증 해법 참조</span><code>${esc(level().solution)}</code><p>초기·유지 통과 시 발사를 허용한다. 세 조건 모두 통과 시 목표 보장을 인정한다. 동일 기준을 충족하는 다른 해법도 유효하다.</p></div>`:'');
   $('next-hint').disabled=hintCount>=level().hints.length;
 }
 
 $('mission-tabs').addEventListener('click',e=>{const b=e.target.closest('[data-level]');if(b&&!busy)loadLevel(Number(b.dataset.level));});
 $('grid').addEventListener('click',e=>{const b=e.target.closest('[data-cell]');if(!b||busy||battle.finished)return;const k=b.dataset.cell;selectedTargets.has(k)?selectedTargets.delete(k):selectedTargets.add(k);setSelectedGoal();});
 $('grid').addEventListener('pointerover',e=>{const b=e.target.closest('[data-cell]');if(b)$('hover-coordinate').textContent=`COORDINATE (${b.dataset.cell.replace(',',', ')})`;});
-$('grid').addEventListener('pointerleave',()=>{$('hover-coordinate').textContent='목표 칸을 클릭하세요';});
+$('grid').addEventListener('pointerleave',()=>{$('hover-coordinate').textContent='목표 좌표를 지정하라';});
 $('target-enemies').addEventListener('click',()=>{selectedTargets=new Set(level().enemies.map(key));setSelectedGoal();});
 $('goal-input').addEventListener('input',()=>{selectedTargets.clear();invalidateAnalysis();});
 $('invariant-input').addEventListener('input',invalidateAnalysis);
