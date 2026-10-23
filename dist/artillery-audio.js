@@ -220,11 +220,11 @@ export function createArtilleryAudio({ contextFactory, random = Math.random } = 
     metal(at + 0.002, weight, pan, length);
   }
 
-  function mechanicalTravel(at, duration, weight = 1, pan = 0) {
+  function mechanicalTravel(at, duration, weight = 1, pan = 0, { presence = 1, hold = 0.78 } = {}) {
     // A rough guide/rammer movement under separate, irregular contact taps.
     // The reference's continuous low-frequency background is not reproduced.
-    noise(at, duration, 0.38 * weight, 410, { noise: 'grit', filter: { type: 'bandpass', frequency: 410, q: 0.65 }, pan, wet: 0, attack: 0.012, sustain: 0.78 });
-    noise(at + 0.008, duration - 0.012, 0.13 * weight, 1350, { noise: 'grit', filter: { type: 'bandpass', frequency: 1350, q: 0.55 }, pan, wet: 0, attack: 0.016, sustain: 0.65 });
+    noise(at, duration, 0.38 * weight, 410, { noise: 'grit', filter: { type: 'bandpass', frequency: 410, q: 0.65 }, pan, wet: 0, attack: 0.012, sustain: hold });
+    noise(at + 0.008, duration - 0.012, 0.13 * weight * presence, 1350, { noise: 'grit', filter: { type: 'bandpass', frequency: 1350, q: 0.55 }, pan, wet: 0, attack: 0.016, sustain: presence > 1 ? hold : 0.65 });
   }
 
   function breechOpen(at) {
@@ -240,10 +240,10 @@ export function createArtilleryAudio({ contextFactory, random = Math.random } = 
   }
 
   function shellLoad(at) {
-    // Longer conveyor/rammer chatter ends in a hollow, low seating impact.
-    // The late settling tap stays separate from the next breech-close cue.
-    mechanicalTravel(at, 0.267, 1.15, 0.12);
-    for (const [offset, gain, frequency] of [[0.023, 0.085, 1100], [0.069, 0.12, 730], [0.128, 0.10, 1370], [0.177, 0.145, 640], [0.239, 0.11, 960]]) {
+    // Hold the textured scrape almost to seating, with more midrange contact
+    // and quieter guide taps so the shell's sliding motion stays audible.
+    mechanicalTravel(at, 0.283, 1.45, 0.12, { presence: 2.8, hold: 0.9 });
+    for (const [offset, gain, frequency] of [[0.023, 0.055, 1100], [0.069, 0.075, 730], [0.128, 0.065, 1370], [0.177, 0.09, 640], [0.239, 0.07, 960]]) {
       noise(at + offset, 0.014, gain, frequency, { filter: { type: 'bandpass', frequency, q: 1.1 }, wet: 0, pan: 0.12, attack: 0.001 });
     }
     steelStrike(at + 0.292, 0.90, 0.08, 1.15);
@@ -255,7 +255,13 @@ export function createArtilleryAudio({ contextFactory, random = Math.random } = 
     // Short draw-in, a heavy block impact, then an isolated locking clack.
     mechanicalTravel(at, 0.176, 0.68, -0.05);
     noise(at + 0.08, 0.022, 0.10, 680, { noise: 'grit', wet: 0, pan: -0.05 });
-    steelStrike(at + 0.225, 1.16, 0.06, 0.88);
+    // A dedicated thick block impact: longer low-frequency pressure, stronger
+    // casing resonance and a restrained sharp edge. Its tail falls beneath
+    // the separate locking latch.
+    noise(at + 0.225, 0.12, 1.15, 140, { noise: 'brown', pan: 0.06, wet: 0, attack: 0.001, sustain: 0.2 });
+    noise(at + 0.226, 0.085, 0.58, 230, { filter: { type: 'bandpass', frequency: 230, q: 0.85 }, pan: 0.06, wet: 0, attack: 0.001, sustain: 0.15 });
+    noise(at + 0.225, 0.012, 0.14, 2300, { pan: 0.06, wet: 0, attack: 0.0006 });
+    metal(at + 0.227, 1.6, 0.06, 1.05);
     noise(at + 0.32, 0.011, 0.23, 2900, { wet: 0, pan: 0.06, attack: 0.0006 });
     noise(at + 0.321, 0.029, 0.17, 480, { filter: { type: 'bandpass', frequency: 480, q: 1.1 }, wet: 0, pan: 0.06, attack: 0.001 });
     metal(at + 0.32, 0.67, 0.06, 0.55);
