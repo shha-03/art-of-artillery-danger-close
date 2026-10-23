@@ -210,7 +210,12 @@ test('mechanical cues use brief noise resonances and end inside their visual sta
     const frequencies = [...new Set(resonances.map(source => filterFor(source).frequency.events[0].value))];
     assert.ok(frequencies.length >= 3);
     assert.ok(frequencies.slice(1).every(value => !Number.isInteger(value / frequencies[0])), 'modes are not a harmonic note stack');
-    assert.ok(resonances.every(source => source.stops[0] - source.starts[0].time < 0.09), 'metal modes are brief rather than sustained tones');
+    assert.ok(resonances.every(source => {
+      const gain = filterFor(source).connections.find(node => node.kind === 'gain');
+      const decayEnd = gain.gain.events.find(event => event.method === 'exponential').time;
+      return decayEnd - source.starts[0].time < 0.09
+        && source.stops[0] - source.starts[0].time < 0.115;
+    }), 'metal modes decay within 90 ms, followed only by the short source cleanup margin');
     audio.stopAll();
   }
   audio.dispose();
@@ -231,7 +236,11 @@ test('shell seating, breech closure, and final locking have distinct animation-a
   const closure = closing.reduce((strongest, source) => peakFor(source) > peakFor(strongest) ? source : strongest);
   const closeTime = closure.starts[0].time - context.currentTime;
   assert.ok(closeTime >= 0.22 && closeTime <= 0.25, 'heavy closure matches the sliding block');
-  const locking = closing.find(source => filterFor(source).type === 'highpass' && source.starts[0].time >= context.currentTime + 0.31);
+  const locking = closing.find(source => source.starts[0].time >= context.currentTime + 0.31
+    && source.starts[0].time <= context.currentTime + 0.35
+    && source.stops[0] - source.starts[0].time < 0.05
+    && filterFor(source).frequency.events[0].value >= 1500
+    && peakFor(source) >= 0.1);
   assert.ok(locking, 'the later locking latch is its own transient');
   assert.ok(locking.starts[0].time - closure.starts[0].time > 0.07, 'closure and lock are not one simultaneous click');
   audio.stopAll();
@@ -240,6 +249,43 @@ test('shell seating, breech closure, and final locking have distinct animation-a
   const combined = context.sources.slice(legacyFirst);
   assert.equal(combined.length, loading.length + closing.length);
   assert.ok(combined.slice(loading.length).every(source => source.starts[0].time > Math.max(...combined.slice(0, loading.length).map(source => source.stops[0]))), 'combined cue finishes loading before closure begins');
+  audio.dispose();
+});
+
+test('mechanical travel uses cached finite irregular friction, with distinct randomized playback offsets', async () => {
+  const { audio, context } = await ready();
+  assert.equal(audio.play('shellLoad'), true);
+  const travel = context.sources.filter(source => source.starts[0].time < context.currentTime + 0.03
+    && source.stops[0] - source.starts[0].time > 0.2);
+  assert.equal(travel.length, 2, 'two friction bands accompany the insertion');
+  const grit = travel[0].buffer;
+  assert.equal(travel[1].buffer, grit, 'friction bands share the cached procedural texture');
+  assert.notEqual(travel[0].starts[0].offset, travel[1].starts[0].offset, 'bands do not replay the same grain in lockstep');
+  assert.equal(grit.numberOfChannels, 1);
+  assert.equal(grit.duration, 2);
+  const samples = grit.getChannelData(0);
+  assert.ok(samples.every(Number.isFinite));
+  assert.ok(samples.some(sample => sample > 0.1) && samples.some(sample => sample < -0.1));
+  assert.ok(samples.every(sample => Math.abs(sample) < 1), 'procedural friction does not contain clipped samples');
+  const blockSize = Math.round(context.sampleRate * 0.005);
+  const energy = [];
+  for (let offset = 0; offset + blockSize <= samples.length; offset += blockSize) {
+    let sum = 0;
+    for (let i = offset; i < offset + blockSize; i++) sum += samples[i] ** 2;
+    energy.push(Math.sqrt(sum / blockSize));
+  }
+  assert.ok(Math.max(...energy) > Math.min(...energy) * 3, 'sticking gaps and slipping contacts have different energy');
+  assert.ok(new Set(energy.map(value => value.toFixed(3))).size > 25, 'the friction envelope is varied instead of a constant pulse train');
+  const highBlocks = energy.flatMap((value, i) => value > 0.15 ? [i] : []);
+  const separations = highBlocks.slice(1).map((value, i) => value - highBlocks[i]);
+  assert.ok(new Set(separations).size >= 3, 'strong contacts have irregular spacing');
+  const bufferCount = context.buffers.length;
+  audio.setEnabled(false);
+  audio.setEnabled(true);
+  const first = context.sources.length;
+  assert.equal(audio.play('breechOpen'), true);
+  assert.equal(context.buffers.length, bufferCount, 'mute/unmute and another mechanical cue reuse the friction buffer');
+  assert.ok(context.sources.slice(first).some(source => source.buffer === grit));
   audio.dispose();
 });
 

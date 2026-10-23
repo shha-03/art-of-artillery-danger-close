@@ -82,11 +82,24 @@ export function createArtilleryAudio({ contextFactory, random = Math.random } = 
     if (buffers.has(kind)) return buffers.get(kind);
     const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * 2), context.sampleRate);
     const data = buffer.getChannelData(0);
-    let brown = 0;
+    let brown = 0, grainLeft = 0, grainLength = 1, grainGain = 0, gapLeft = 0;
     for (let i = 0; i < data.length; i++) {
       const white = rand() * 2 - 1;
       brown = (brown + 0.035 * white) / 1.035;
-      data[i] = kind === 'brown' ? brown * 3.2 : white;
+      if (kind === 'grit') {
+        // Sticking/slipping contact, with irregular grain lengths and gaps.
+        // A constant tremolo would sound like an electronic motor; these
+        // independent friction bursts have no repeating pitch or pulse rate.
+        if (grainLeft <= 0 && gapLeft <= 0) {
+          grainLength = Math.max(1, Math.round(context.sampleRate * (0.0015 + rand() * 0.004)));
+          grainLeft = grainLength;
+          grainGain = 0.35 + rand() * 0.65;
+          gapLeft = Math.round(context.sampleRate * (0.002 + rand() * 0.011));
+        }
+        const contact = grainLeft > 0 ? grainGain * (grainLeft / grainLength) ** 0.6 : 0;
+        if (grainLeft > 0) grainLeft--; else gapLeft--;
+        data[i] = white * (0.09 + contact * 0.75) + brown * 0.35;
+      } else data[i] = kind === 'brown' ? brown * 3.2 : white;
     }
     buffers.set(kind, buffer);
     return buffer;
@@ -193,48 +206,59 @@ export function createArtilleryAudio({ contextFactory, random = Math.random } = 
   const metal = (at, weight = 1, pan = 0, length = 1) => {
     // Short, independently damped, non-harmonic noise resonances. These are
     // contact sounds rather than pitched oscillator notes or downward sweeps.
-    noise(at, 0.055 * length, 0.075 * weight, 330, { filter: { type: 'bandpass', frequency: 330, q: 3.1 }, pan, wet: 0 });
-    noise(at + 0.002, 0.045 * length, 0.05 * weight, 807, { filter: { type: 'bandpass', frequency: 807, q: 4.2 }, pan, wet: 0 });
-    noise(at + 0.004, 0.03 * length, 0.03 * weight, 1469, { filter: { type: 'bandpass', frequency: 1469, q: 3.6 }, pan, wet: 0 });
+    noise(at, 0.073 * length, 0.20 * weight, 223, { filter: { type: 'bandpass', frequency: 223, q: 4.6 }, pan, wet: 0, attack: 0.001 });
+    noise(at + 0.002, 0.049 * length, 0.13 * weight, 521, { filter: { type: 'bandpass', frequency: 521, q: 6.5 }, pan, wet: 0, attack: 0.001 });
+    noise(at + 0.004, 0.028 * length, 0.075 * weight, 1163, { filter: { type: 'bandpass', frequency: 1163, q: 5.2 }, pan, wet: 0, attack: 0.001 });
   };
 
+  function steelStrike(at, weight = 1, pan = 0, length = 1) {
+    // Heavy casing, short contact snap, then quickly damped steel modes.
+    // All energy is noise-excited; no sampled recording or pitched bass sweep.
+    noise(at, 0.085 * length, 0.66 * weight, 175, { noise: 'brown', pan, wet: 0, attack: 0.001 });
+    noise(at + 0.001, 0.058 * length, 0.32 * weight, 285, { filter: { type: 'bandpass', frequency: 285, q: 0.85 }, pan, wet: 0, attack: 0.001 });
+    noise(at, 0.009 * length, 0.20 * weight, 3200, { pan, wet: 0, attack: 0.0006 });
+    metal(at + 0.002, weight, pan, length);
+  }
+
+  function mechanicalTravel(at, duration, weight = 1, pan = 0) {
+    // A rough guide/rammer movement under separate, irregular contact taps.
+    // The reference's continuous low-frequency background is not reproduced.
+    noise(at, duration, 0.38 * weight, 410, { noise: 'grit', filter: { type: 'bandpass', frequency: 410, q: 0.65 }, pan, wet: 0, attack: 0.012, sustain: 0.78 });
+    noise(at + 0.008, duration - 0.012, 0.13 * weight, 1350, { noise: 'grit', filter: { type: 'bandpass', frequency: 1350, q: 0.55 }, pan, wet: 0, attack: 0.016, sustain: 0.65 });
+  }
+
   function breechOpen(at) {
-    // Unlock, drag along the guides, then meet the open stop. Mechanical cues
-    // are dry so their actual end is bounded, without a shared reverb tail.
-    noise(at, 0.018, 0.11, 3400, { filter: { type: 'highpass', frequency: 1700 }, wet: 0 });
-    noise(at + 0.005, 0.035, 0.10, 450, { filter: { type: 'bandpass', frequency: 450, q: 0.9 }, wet: 0 });
-    metal(at + 0.009, 0.7, -0.12);
-    noise(at + 0.045, 0.24, 0.14, 630, { filter: { type: 'bandpass', frequency: 630, q: 0.7 }, attack: 0.02, sustain: 0.65, pan: -0.12, wet: 0 });
-    noise(at + 0.11, 0.025, 0.055, 1450, { filter: { type: 'bandpass', frequency: 1450, q: 1 }, pan: -0.12, wet: 0 });
-    noise(at + 0.205, 0.02, 0.045, 2900, { filter: { type: 'highpass', frequency: 1900 }, wet: 0 });
-    noise(at + 0.315, 0.10, 0.23, 340, { noise: 'brown', pan: -0.15, wet: 0 });
-    noise(at + 0.318, 0.05, 0.13, 270, { filter: { type: 'bandpass', frequency: 270, q: 0.9 }, wet: 0 });
-    metal(at + 0.325, 0.45, -0.15);
+    // Unlocking double clack, a short rough withdrawal, then a heavier stop.
+    steelStrike(at, 0.46, -0.12, 0.64);
+    noise(at + 0.027, 0.018, 0.15, 1850, { wet: 0, pan: -0.10, attack: 0.001 });
+    mechanicalTravel(at + 0.057, 0.222, 0.78, -0.12);
+    for (const [offset, gain, frequency] of [[0.092, 0.08, 870], [0.151, 0.11, 580], [0.224, 0.075, 1080]]) {
+      noise(at + offset, 0.016, gain, frequency, { filter: { type: 'bandpass', frequency, q: 0.9 }, wet: 0, pan: -0.12, attack: 0.001 });
+    }
+    steelStrike(at + 0.315, 0.83, -0.15);
+    noise(at + 0.371, 0.026, 0.085, 690, { filter: { type: 'bandpass', frequency: 690, q: 1.4 }, wet: 0, pan: -0.15 });
   }
 
   function shellLoad(at) {
-    // Sliding/ramming texture precedes the main seating impact near 300 ms.
-    noise(at, 0.26, 0.16, 470, { filter: { type: 'bandpass', frequency: 470, q: 0.6 }, attack: 0.025, sustain: 0.65, pan: 0.12, wet: 0 });
-    noise(at + 0.026, 0.20, 0.08, 1550, { filter: { type: 'bandpass', frequency: 1550, q: 0.5 }, attack: 0.035, sustain: 0.6, pan: 0.14, wet: 0 });
-    noise(at + 0.105, 0.024, 0.06, 2100, { pan: 0.1, wet: 0 });
-    noise(at + 0.18, 0.035, 0.07, 950, { filter: { type: 'bandpass', frequency: 950, q: 1.2 }, wet: 0 });
-    noise(at + 0.292, 0.115, 0.29, 380, { noise: 'brown', pan: 0.08, wet: 0 });
-    noise(at + 0.294, 0.07, 0.18, 310, { filter: { type: 'bandpass', frequency: 310, q: 0.8 }, wet: 0 });
-    metal(at + 0.298, 0.6, 0.08);
-    noise(at + 0.40, 0.065, 0.06, 760, { filter: { type: 'bandpass', frequency: 760, q: 0.7 }, wet: 0 });
-    noise(at + 0.446, 0.035, 0.035, 1400, { wet: 0 });
+    // Longer conveyor/rammer chatter ends in a hollow, low seating impact.
+    // The late settling tap stays separate from the next breech-close cue.
+    mechanicalTravel(at, 0.267, 1.15, 0.12);
+    for (const [offset, gain, frequency] of [[0.023, 0.085, 1100], [0.069, 0.12, 730], [0.128, 0.10, 1370], [0.177, 0.145, 640], [0.239, 0.11, 960]]) {
+      noise(at + offset, 0.014, gain, frequency, { filter: { type: 'bandpass', frequency, q: 1.1 }, wet: 0, pan: 0.12, attack: 0.001 });
+    }
+    steelStrike(at + 0.292, 0.90, 0.08, 1.15);
+    noise(at + 0.397, 0.043, 0.14, 510, { noise: 'grit', filter: { type: 'bandpass', frequency: 510, q: 0.8 }, wet: 0, pan: 0.08 });
+    noise(at + 0.451, 0.018, 0.055, 1280, { wet: 0, pan: 0.08, attack: 0.001 });
   }
 
   function breechClose(at) {
-    // A short closing movement, a heavy seat, then a separate locking latch.
-    noise(at, 0.18, 0.12, 420, { filter: { type: 'bandpass', frequency: 420, q: 0.7 }, attack: 0.008, sustain: 0.65, wet: 0 });
-    noise(at + 0.225, 0.09, 0.28, 390, { noise: 'brown', wet: 0 });
-    noise(at + 0.227, 0.055, 0.24, 250, { filter: { type: 'bandpass', frequency: 250, q: 0.9 }, wet: 0 });
-    noise(at + 0.226, 0.012, 0.12, 3400, { filter: { type: 'highpass', frequency: 1400 }, wet: 0 });
-    metal(at + 0.231, 0.75, 0.06);
-    noise(at + 0.32, 0.012, 0.13, 3300, { filter: { type: 'highpass', frequency: 1700 }, wet: 0 });
-    noise(at + 0.321, 0.03, 0.08, 530, { filter: { type: 'bandpass', frequency: 530, q: 1.1 }, wet: 0 });
-    metal(at + 0.32, 0.4, 0.06, 0.75);
+    // Short draw-in, a heavy block impact, then an isolated locking clack.
+    mechanicalTravel(at, 0.176, 0.68, -0.05);
+    noise(at + 0.08, 0.022, 0.10, 680, { noise: 'grit', wet: 0, pan: -0.05 });
+    steelStrike(at + 0.225, 1.16, 0.06, 0.88);
+    noise(at + 0.32, 0.011, 0.23, 2900, { wet: 0, pan: 0.06, attack: 0.0006 });
+    noise(at + 0.321, 0.029, 0.17, 480, { filter: { type: 'bandpass', frequency: 480, q: 1.1 }, wet: 0, pan: 0.06, attack: 0.001 });
+    metal(at + 0.32, 0.67, 0.06, 0.55);
   }
 
   function loadClose(at) {
