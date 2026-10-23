@@ -9,8 +9,8 @@ const key = p => `${p.x},${p.y}`;
 const pad = n => String(n).padStart(2, '0');
 const point = p => p ? `(${p.x}, ${p.y})` : '—';
 const unitIcons = {
-  enemy: '<svg class="unit-icon" viewBox="0 0 40 40" aria-hidden="true"><path d="M8 15h24v15H8z" fill="currentColor" opacity=".18"/><rect x="7" y="15" width="26" height="17" rx="5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 18v10m16-10v10M15 15v-5h10v10H15zM20 3v10" stroke="currentColor" stroke-width="2.5" fill="none"/><path d="M13 29h14" stroke="currentColor" stroke-width="2"/></svg>',
-  friendly: '<svg class="unit-icon" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 5l12 5v10c0 7-7 12-12 15C15 32 8 27 8 20V10z" fill="currentColor" opacity=".14"/><path d="M20 5l12 5v10c0 7-7 12-12 15C15 32 8 27 8 20V10z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 13v13m-6-6h12" stroke="currentColor" stroke-width="2.5"/></svg>'
+  enemy: '<img class="unit-icon" src="./unit-hostile.svg" width="48" height="48" alt="" aria-hidden="true" draggable="false">',
+  friendly: '<img class="unit-icon" src="./unit-friendly.svg" width="48" height="48" alt="" aria-hidden="true" draggable="false">'
 };
 let levelIndex = 0, selectedInitialIndex = 0, battle, lastAnalysis = null, records = [], selectedTargets = new Set();
 let browsingChapter = CHAPTERS[0].id;

@@ -119,11 +119,7 @@ svg { display: block; }
 .cell.hit { background: #171c166b; }
 .cell.impact { animation: cell-impact .65s ease-out; z-index: 8; }
 .cell.impact::before { content: ""; position: absolute; inset: 9%; z-index: 6; border-radius: 50%; background: #f6b66a; animation: impact-flash .65s ease-out both; pointer-events: none; }
-.unit-icon { position: relative; z-index: 2; display: grid; place-items: center; width: 62%; max-width: 39px; color: #8e987e; filter: drop-shadow(0 2px 2px #11160fb3); pointer-events: none; }
-.unit-icon svg { width: 100%; height: auto; max-height: 36px; }
-.cell.enemy .unit-icon { color: var(--orange); }
-.cell.friendly .unit-icon { color: #bbc8aa; }
-.cell.neutral .unit-icon { color: #8b957c; opacity: .85; }
+.unit-icon { position: relative; z-index: 2; display: block; width: 68%; height: auto; max-width: 42px; aspect-ratio: 1; filter: drop-shadow(0 2px 2px #11160fb3); pointer-events: none; }
 .neutral-dot { position: relative; width: 2px; height: 2px; border-radius: 50%; background: #778169; opacity: .65; pointer-events: none; }
 .cell.candidate .neutral-dot { background: #ccb276; opacity: .8; }
 .cell.hit .unit-icon { opacity: .25; filter: grayscale(1); }
@@ -143,8 +139,7 @@ svg { display: block; }
 .map-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 23px; padding: 15px 20px; border-top: 1px solid var(--line); }
 .legend-item { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; color: var(--muted); }
 .legend-dot { width: 7px; height: 7px; display: inline-block; background: #869075; }
-.legend-dot.enemy { background: var(--orange); }
-.legend-dot.friendly { background: var(--sage); }
+.legend-symbol { display: block; flex: 0 0 20px; width: 20px; height: 20px; object-fit: contain; }
 .legend-dot.candidate { width: 11px; height: 9px; border: 1px solid #cbb96a99; background: #cbb96a24; }
 .legend-dot.objective { width: 11px; height: 9px; border: 1px dashed #cbb96a; background: none; }
 .legend-dot.hit { width: 8px; height: 6px; border: 1px solid #866a44; border-radius: 50%; background: #121a0e; }

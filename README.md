@@ -8,6 +8,12 @@
 
 Use the 한국어 / English switch to change language. Your preference is saved in this browser. Switching during combat preserves the current mission, entered conditions, firing results, and remaining commands.
 
+## 부대 기호
+
+전장과 범례는 NATO APP-6의 지상부대 식별 프레임을 사용합니다. 아군은 파란 직사각형(`#80E0FF`), 적군은 빨간 마름모(`#FF8080`)이며, 현재 위치를 나타내는 검은 실선 테두리를 사용합니다. 게임에서 병과와 제대 규모를 지정하지 않으므로 내부 병과 아이콘이나 제대 표시는 넣지 않습니다. 두 SVG 자산을 전장과 범례에서 공유하며, 각 좌표 버튼의 텍스트 설명으로도 피아를 식별할 수 있습니다.
+
+근거: [NATO APP-06(E) Version 1](https://coi.nato.int/EWCOI/EW%20COI%20Shared%20Documents/WGs/NEWWG/EW%20Info%20Exchange%20Requirements%20Panel%20%28IERP%29/01_Governing%20Documents/Publications/APP-06%20NATO%20Symbology/APP-06%20EDE%20V1%20E.pdf), §1.2.1 및 Tables 1-1·1-2(프레임·상태), Table 1-15(색상), §3.3.1 및 Table 3-1(일반 부대 프레임).
+
 ## 실행
 
 프로젝트 디렉터리에서 다음 명령을 실행한 뒤, 터미널에 출력된 주소를 브라우저로 여세요.
