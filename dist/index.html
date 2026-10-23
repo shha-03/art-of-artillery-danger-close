@@ -24,7 +24,12 @@
       <div class="campaign-route"><button id="previous-round" class="small-button" data-i18n="campaign.previous">← 이전 작전</button><button id="next-round" class="small-button" data-i18n="campaign.next">다음 작전 →</button></div>
     </details>
     <div class="workspace">
-      <section class="map-panel" aria-labelledby="map-title">
+      <div class="tactical-panel">
+        <div id="view-tabs" class="view-tabs" role="tablist" data-i18n-aria-label="ui.viewTabs" aria-label="전장·프로그램 보기">
+          <button id="map-view-tab" type="button" role="tab" data-view="map" aria-controls="map-view" aria-selected="true" tabindex="0" data-i18n="ui.mapTab">전장 지도</button>
+          <button id="program-view-tab" type="button" role="tab" data-view="program" aria-controls="program-view" aria-selected="false" tabindex="-1" data-i18n="ui.programTab">초기화·루프</button>
+        </div>
+      <section id="map-view" class="map-panel" role="tabpanel" aria-labelledby="map-view-tab">
         <div class="panel-heading"><div><div class="panel-kicker" id="operation-label">OPERATION 01</div><h2 id="map-title" class="panel-title" data-i18n="map.title">전술 지도</h2></div><div class="map-tools"><button id="preview-button" class="icon-button active" aria-pressed="true" data-i18n-title="map.previewTitle" title="검증 전 포격 후보 영역 표시" data-i18n="map.preview">후보 영역</button><button id="trace-button" class="icon-button" aria-pressed="false" data-i18n-title="map.traceTitle" title="선택한 초기 입력의 실제 실행 경로 표시" data-i18n="map.trace">실행 경로</button></div></div>
         <div class="battlefield"><div class="map-caption"><span id="map-sector">SECTOR A · 09 × 09</span><span id="hover-coordinate" data-i18n="map.selectCoordinate">전장 좌표를 확인하라</span></div><div id="grid" class="coordinate-grid" style="--size:9" role="group" data-i18n-aria-label="map.label" aria-label="전장 좌표 지도"></div><div id="map-status" class="map-status" data-i18n="map.initialStatus">고정 수학 명세와 포격 후보를 대조하라</div></div>
         <div class="map-legend"><span class="legend-item" data-i18n-html="legend.enemy"><img class="legend-symbol" src="./unit-hostile.svg" width="20" height="20" alt="" aria-hidden="true">적군</span><span class="legend-item" data-i18n-html="legend.friendly"><img class="legend-symbol" src="./unit-friendly.svg" width="20" height="20" alt="" aria-hidden="true">아군</span><span class="legend-item" data-i18n-html="legend.candidate"><i class="legend-dot candidate"></i>포격 후보</span><span class="legend-item" data-i18n-html="legend.objective"><i class="legend-dot objective"></i>수학 명세</span><span class="legend-item" data-i18n-html="legend.hit"><i class="legend-dot hit"></i>포격 완료</span></div>
@@ -35,7 +40,7 @@
         <section class="log-panel" aria-labelledby="log-title"><div class="log-header"><h3 id="log-title" data-i18n="log.title">작전 기록</h3><span id="log-count">00 ENTRIES</span></div><ol id="log-list" class="log-list" aria-live="polite"><li class="empty-log" data-i18n="log.empty">명령 대기. 전장을 분석하고 초탄 사격을 준비하라.</li></ol></section>
         </details>
       </section>
-      <section class="program-panel" aria-labelledby="program-title">
+      <section id="program-view" class="program-panel" role="tabpanel" aria-labelledby="program-view-tab" hidden>
         <div class="panel-heading"><div><div class="panel-kicker">PROGRAM</div><h2 id="program-title" class="panel-title" data-i18n="ui.programTitle">고정 프로그램</h2></div></div>
         <p id="mission-concept" class="mission-concept"></p>
         <p class="input-help" data-i18n="command.initialization">초기화 · 반복문 진입 전 한 번 실행</p>
@@ -54,6 +59,7 @@
           </div>
         </details>
       </section>
+      </div>
       <section class="command-panel" aria-labelledby="command-title">
         <div class="panel-heading"><div><div class="panel-kicker">FIRE CONTROL</div><h2 id="command-title" class="panel-title" data-i18n="command.title">포격 지휘소</h2></div><button id="restart-button" class="small-button" data-i18n-title="command.restartTitle" title="현재 작전 처음부터 다시 시작" data-i18n="command.restart">↻ 작전 재시작</button></div>
         <div class="stats-grid"><div class="stat"><span class="stat-label" data-i18n="stat.orders">잔여 명령</span><div><strong class="stat-value" id="remaining-stat">06</strong><span class="stat-unit" id="budget-stat">/ 06</span></div></div><div class="stat"><span class="stat-label" data-i18n="stat.kills">적군 격파</span><div><strong class="stat-value" id="kills-stat">00</strong><span class="stat-unit" id="enemies-stat">/ 03</span></div></div><div class="stat"><span class="stat-label" data-i18n="stat.score">작전 점수</span><div><strong class="stat-value" id="score-stat">06</strong><span class="stat-unit">PTS</span></div></div></div>

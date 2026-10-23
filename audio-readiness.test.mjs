@@ -14,6 +14,8 @@ function applicationSlice(startMarker, endMarker) {
 }
 const fireScript = applicationSlice('async function fire(mode)', '\nfunction showResult()');
 const soundScript = applicationSlice("$('sound-button').addEventListener('click'", "\ndocument.addEventListener('visibilitychange'");
+const tacticalScript = applicationSlice('function selectTacticalView(', '\nfunction playCue(');
+const tacticalEventsScript = applicationSlice("$('view-tabs').addEventListener('click'", "$('chapter-select').addEventListener('change'");
 
 function deferred() {
   let resolve, reject;
@@ -23,6 +25,7 @@ function deferred() {
 
 function harness({ sound = true, abortResolves = true, manualSequence = false } = {}) {
   const preparations = [], sequences = [], calls = { orders: [], stops: 0, enabled: [], renders: 0, commits: [] };
+  const sequenceReady = deferred();
   const listeners = new Map();
   const elements = new Map([
     ['goal-input', { value: 'true' }],
@@ -37,6 +40,7 @@ function harness({ sound = true, abortResolves = true, manualSequence = false } 
     SOUND_STORAGE_KEY: 'test-sound', localStorage: { setItem() {} },
     $: id => elements.get(id), flash() {}, render() { calls.renders++; },
     renderChecks() {}, renderSound() {}, showResult() {}, playCue() {},
+    selectTacticalView() {},
     setFiringPhase(phase) { context.firingPhase = phase; },
     battleEffects: { clear() {} },
     artilleryAudio: {
@@ -59,6 +63,7 @@ function harness({ sound = true, abortResolves = true, manualSequence = false } 
     runFiringSequence(options) {
       const sequence = { ...deferred(), options };
       sequences.push(sequence);
+      sequenceReady.resolve(sequence);
       if (!manualSequence) {
         options.onEvent({ type: 'finished' });
         sequence.resolve();
@@ -69,7 +74,41 @@ function harness({ sound = true, abortResolves = true, manualSequence = false } 
   vm.createContext(context);
   fireScript.runInContext(context);
   soundScript.runInContext(context);
-  return { context, preparations, sequences, calls, elements, toggleSound: () => listeners.get('click')() };
+  return { context, preparations, sequences, calls, elements, sequenceReady: sequenceReady.promise, toggleSound: () => listeners.get('click')() };
+}
+
+function withTacticalViews(h) {
+  const events = {}, effects = [], doc = { activeElement: null, querySelector: () => ({ scrollIntoView() {} }) };
+  function element(id, extra = {}) {
+    const node = {
+      hidden: false, disabled: false, attrs: {},
+      contains(target) { return target === this || this.children?.includes(target) || false; },
+      setAttribute(key, value) { this.attrs[key] = value; },
+      focus() { doc.activeElement = this; },
+      ...extra,
+    };
+    h.elements.set(id, node);
+    return node;
+  }
+  const map = element('map-view'), codeFocus = {};
+  const program = element('program-view', { children: [codeFocus] });
+  const tabs = ['map', 'program'].map(view => element(`${view}-view-tab`, { dataset: { view }, closest() { return this; } }));
+  element('view-tabs', { children: tabs, addEventListener: (name, handler) => { events[name] = handler; } });
+  element('map-status');
+  Object.assign(h.context, {
+    document: doc, level: () => ({ size: 9 }), t: key => key,
+    sequenceCopyPhase: () => h.context.firingPhase, renderFeedback() {},
+    // renderStats, invoked by the real render, synchronizes these controls.
+    render() { h.calls.renders++; h.context.syncTacticalView(); },
+  });
+  Object.assign(h.context.battleEffects, {
+    launch() { effects.push({ phase: 'flight', visible: !map.hidden }); },
+    impact() { effects.push({ phase: 'impact', visible: !map.hidden }); }, radio() {},
+  });
+  tacticalScript.runInContext(h.context);
+  tacticalEventsScript.runInContext(h.context);
+  h.context.selectTacticalView('map');
+  return { map, program, tabs, codeFocus, doc, events, effects };
 }
 
 test('the first order waits for audio readiness before constructing its verifier and retains the requested inputs', async () => {
@@ -206,4 +245,60 @@ test('late sequence events and errors from a cancelled order cannot commit over 
   h.sequences[1].resolve();
   await current;
   assert.equal(h.context.busy, false);
+});
+
+test('code remains available during preparation, but flight and impact always use a visible map until the radio phase', async () => {
+  const h = harness({ manualSequence: true }), view = withTacticalViews(h);
+  const firing = h.context.fire('single');
+  h.context.selectTacticalView('program');
+  assert.equal(view.program.hidden, false, 'audio preparation does not lock out the program');
+  h.preparations[0].resolve(true);
+  const emit = (await h.sequenceReady).options.onEvent;
+  emit({ type: 'checking', stage: 'preservation' });
+  assert.equal(view.program.hidden, false, 'verification may be inspected in the program tab');
+  assert.equal(view.tabs[1].disabled, false);
+  view.doc.activeElement = view.codeFocus;
+  emit({ type: 'phase', phase: 'flight-delay', shots: [], mode: 'single' });
+  assert.equal(view.map.hidden, false);
+  assert.equal(view.program.hidden, true);
+  assert.equal(view.tabs[1].disabled, true);
+  assert.equal(view.doc.activeElement, view.tabs[0], 'focus cannot remain in the hidden code panel');
+  view.events.click({ target: view.tabs[1] });
+  h.context.selectTacticalView('program');
+  let prevented = false;
+  view.events.keydown({ target: view.tabs[0], key: 'End', preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(view.map.hidden, false, 'clicks, direct activation and keyboard navigation cannot hide the effects');
+  assert.equal(view.tabs[0].tabIndex, 0);
+  assert.equal(view.tabs[1].tabIndex, -1);
+  emit({ type: 'phase', phase: 'flight', shots: [], mode: 'single' });
+  h.context.selectTacticalView('program');
+  emit({ type: 'phase', phase: 'impact', shots: [], mode: 'single' });
+  assert.deepEqual(view.effects, [{ phase: 'flight', visible: true }, { phase: 'impact', visible: true }]);
+  assert.equal(view.tabs[1].disabled, true);
+  emit({ type: 'phase', phase: 'radio', shots: [], mode: 'single' });
+  assert.equal(view.tabs[1].disabled, false);
+  view.events.click({ target: view.tabs[1] });
+  assert.equal(view.program.hidden, false, 'the short animation lock ends before the report');
+  emit({ type: 'finished' });
+  h.sequences[0].resolve();
+  await firing;
+  assert.equal(h.context.busy, false);
+  assert.equal(view.tabs[1].disabled, false);
+});
+
+test('an animation failure releases the program tab and a focused tab is moved safely before it is disabled', async () => {
+  const h = harness({ sound: false, manualSequence: true }), view = withTacticalViews(h);
+  const firing = h.context.fire('single');
+  h.context.selectTacticalView('program', { focusTab: true });
+  h.sequences[0].options.onEvent({ type: 'phase', phase: 'flight-delay', shots: [], mode: 'single' });
+  assert.equal(view.doc.activeElement, view.tabs[0]);
+  assert.equal(view.tabs[1].disabled, true);
+  h.sequences[0].reject(new Error('Animation failed'));
+  await firing;
+  assert.equal(h.context.busy, false);
+  assert.equal(h.context.firingPhase, 'failed');
+  assert.equal(view.tabs[1].disabled, false);
+  h.context.selectTacticalView('program');
+  assert.equal(view.program.hidden, false);
 });

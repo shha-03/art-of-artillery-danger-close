@@ -210,6 +210,7 @@ function renderUnitRoster() {
   }).join('')}</ul></section>`).join('');
 }
 function renderStats() {
+  syncTacticalView();
   $('remaining-stat').textContent=pad(battle.remaining); $('budget-stat').textContent=`/ ${pad(battle.budget)}`;
   $('kills-stat').textContent=pad(battle.enemyKills); $('enemies-stat').textContent=`/ ${pad(level().enemies.length)}`;
   $('score-stat').textContent=battle.score;
@@ -316,8 +317,30 @@ function setSelectedGoal() {
   $('goal-input').value=[...selectedTargets].map(k=>{const [x,y]=k.split(',');return `(x == ${x} && y == ${y})`;}).join(' || ');
   invalidateAnalysis();
 }
+function selectTacticalView(view,{focusTab=false}={}) {
+  const views=['map','program'];
+  if(!views.includes(view)||(view==='program'&&tacticalMapRequired()))return;
+  const hiddenFocus=views.some(name=>name!==view&&$(`${name}-view`).contains(document.activeElement));
+  for(const name of views) {
+    const selected=name===view, tab=$(`${name}-view-tab`);
+    $(`${name}-view`).hidden=!selected;
+    tab.setAttribute('aria-selected',String(selected));
+    tab.tabIndex=selected?0:-1;
+  }
+  if(focusTab||hiddenFocus)$(`${view}-view-tab`).focus({preventScroll:true});
+}
+function tacticalMapRequired() {
+  return busy&&['flight-delay','flight','impact'].includes(firingPhase);
+}
+function syncTacticalView() {
+  const locked=tacticalMapRequired(), programTab=$('program-view-tab');
+  const moveFocus=locked&&programTab===document.activeElement;
+  programTab.disabled=locked;
+  if(locked)selectTacticalView('map',{focusTab:moveFocus});
+}
 function setFiringPhase(phase) {
   firingPhase=phase;
+  syncTacticalView();
   if(busy&&['fire','flight-delay','flight','impact','radio'].includes(firingPhase))$('map-status').textContent=t(`sequence.${sequenceCopyPhase()}.title`);
   renderFeedback();
 }
@@ -340,6 +363,7 @@ function applyOrderResult(result,mode,expression) {
 async function fire(mode) {
   if(busy||battle.finished) return;
   if(!$('goal-input').value.trim()) { flash('missingGoal');$('goal-input').focus();return; }
+  selectTacticalView('map');
   sequenceAbort?.abort();
   const controller=new AbortController();sequenceAbort=controller;
   const currentToken=turnToken;
@@ -443,6 +467,19 @@ function changeLanguage(nextLanguage) {
 }
 
 $('language-select').addEventListener('change',e=>changeLanguage(e.target.value));
+$('view-tabs').addEventListener('click',e=>{
+  const tab=e.target.closest('[role="tab"][data-view]');
+  if(tab&&!tab.disabled&&$('view-tabs').contains(tab))selectTacticalView(tab.dataset.view);
+});
+$('view-tabs').addEventListener('keydown',e=>{
+  const tab=e.target.closest('[role="tab"][data-view]');
+  if(!tab||!$('view-tabs').contains(tab)||e.altKey||e.ctrlKey||e.metaKey)return;
+  const views=['map','program'].filter(view=>!$(`${view}-view-tab`).disabled), index=views.indexOf(tab.dataset.view);
+  if(index<0||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
+  e.preventDefault();
+  const next=e.key==='Home'?0:e.key==='End'?views.length-1:(index+(e.key==='ArrowRight'?1:-1)+views.length)%views.length;
+  selectTacticalView(views[next],{focusTab:true});
+});
 $('chapter-select').addEventListener('change',e=>{
   const chapter=Number(e.target.value);
   if(CHAPTERS.some(item=>item.id===chapter)){browsingChapter=chapter;renderTabs();}
@@ -492,6 +529,7 @@ document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',
 document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();}}));
 document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key==='Enter'&&!document.querySelector('dialog[open]')){e.preventDefault();fire(e.shiftKey?'salvo':'single');}});
 applyStaticTranslations(language);
+selectTacticalView('map');
 loadLevel(0);
 renderSound();
 
