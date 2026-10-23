@@ -97,6 +97,22 @@ async function ready(options = {}) {
   return { audio, context };
 }
 
+function reaches(source, destination, seen = new Set()) {
+  if (source === destination) return true;
+  if (seen.has(source)) return false;
+  seen.add(source);
+  return source.connections.some(node => reaches(node, destination, seen));
+}
+
+function filterFor(source) {
+  return source.connections.find(node => node.kind === 'filter');
+}
+
+function peakFor(source) {
+  const gain = (filterFor(source) || source).connections.find(node => node.kind === 'gain');
+  return Math.max(...gain.gain.events.filter(event => event.method === 'linear').map(event => event.value));
+}
+
 test('unlock constructs and resumes synchronously within the gesture and shares a pending resume', async () => {
   const context = new AudioContext({ suspended: true });
   let created = 0, finishResume;
@@ -151,13 +167,17 @@ test('muted, unavailable, rejected, and disposed audio paths fail silently witho
 
 test('every cue schedules finite layered sources, envelopes, and explicit source end times', async () => {
   const { audio, context } = await ready();
-  for (const cue of ['breechOpen', 'loadClose', 'fire', 'impact', 'salvoImpact', 'radio', 'bugle', 'failure']) {
+  for (const cue of ['breechOpen', 'shellLoad', 'breechClose', 'loadClose', 'fire', 'impact', 'salvoImpact', 'radio', 'bugle', 'failure']) {
     const first = context.sources.length;
     assert.equal(audio.play(cue), true, cue);
     const sources = context.sources.slice(first);
     assert.ok(sources.length >= 3, `${cue}: effect has distinct physical layers`);
     assert.ok(sources.some(source => source.kind === 'noise'), `${cue}: noise texture`);
-    assert.ok(sources.some(source => source.kind === 'oscillator'), `${cue}: body or resonance`);
+    if (cue === 'radio' || cue === 'bugle') {
+      assert.ok(sources.some(source => source.kind === 'oscillator'), `${cue}: intentional pitched signal`);
+    } else {
+      assert.ok(sources.every(source => source.kind === 'noise'), `${cue}: physical textures do not use pitched oscillator sweeps`);
+    }
     for (const source of sources) {
       assert.equal(source.starts.length, 1);
       assert.ok(source.starts[0].time >= context.currentTime);
@@ -176,11 +196,76 @@ test('every cue schedules finite layered sources, envelopes, and explicit source
   audio.dispose();
 });
 
+test('mechanical cues use brief noise resonances and end inside their visual stage without reverberant tails', async () => {
+  const { audio, context } = await ready();
+  for (const [cue, limit] of [['breechOpen', 0.48], ['shellLoad', 0.52], ['breechClose', 0.4]]) {
+    const first = context.sources.length;
+    assert.equal(audio.play(cue), true);
+    const sources = context.sources.slice(first);
+    assert.ok(Math.max(...sources.map(source => source.stops[0])) <= context.currentTime + limit, `${cue}: physical stop deadline`);
+    const reverb = context.nodes.filter(node => node.kind === 'convolver').at(-1);
+    assert.ok(sources.every(source => !reaches(source, reverb)), `${cue}: no reverb outlives the mechanical stage`);
+    const resonances = sources.filter(source => filterFor(source)?.Q.events[0].value >= 3);
+    assert.ok(resonances.length >= 3, `${cue}: multiple metal contact modes`);
+    const frequencies = [...new Set(resonances.map(source => filterFor(source).frequency.events[0].value))];
+    assert.ok(frequencies.length >= 3);
+    assert.ok(frequencies.slice(1).every(value => !Number.isInteger(value / frequencies[0])), 'modes are not a harmonic note stack');
+    assert.ok(resonances.every(source => source.stops[0] - source.starts[0].time < 0.09), 'metal modes are brief rather than sustained tones');
+    audio.stopAll();
+  }
+  audio.dispose();
+});
+
+test('shell seating, breech closure, and final locking have distinct animation-aligned transients', async () => {
+  const { audio, context } = await ready();
+  audio.play('shellLoad');
+  const loading = [...context.sources];
+  const seating = loading.reduce((strongest, source) => peakFor(source) > peakFor(strongest) ? source : strongest);
+  const seatTime = seating.starts[0].time - context.currentTime;
+  assert.ok(seatTime >= 0.28 && seatTime <= 0.32, 'main seating impact near 300 ms');
+  assert.ok(loading.some(source => source.starts[0].time < context.currentTime + 0.05 && source.stops[0] > context.currentTime + 0.20), 'a longer insertion scrape precedes the seat');
+  audio.stopAll();
+  const first = context.sources.length;
+  audio.play('breechClose');
+  const closing = context.sources.slice(first);
+  const closure = closing.reduce((strongest, source) => peakFor(source) > peakFor(strongest) ? source : strongest);
+  const closeTime = closure.starts[0].time - context.currentTime;
+  assert.ok(closeTime >= 0.22 && closeTime <= 0.25, 'heavy closure matches the sliding block');
+  const locking = closing.find(source => filterFor(source).type === 'highpass' && source.starts[0].time >= context.currentTime + 0.31);
+  assert.ok(locking, 'the later locking latch is its own transient');
+  assert.ok(locking.starts[0].time - closure.starts[0].time > 0.07, 'closure and lock are not one simultaneous click');
+  audio.stopAll();
+  const legacyFirst = context.sources.length;
+  assert.equal(audio.play('loadClose'), true, 'older integrations keep a combined cue');
+  const combined = context.sources.slice(legacyFirst);
+  assert.equal(combined.length, loading.length + closing.length);
+  assert.ok(combined.slice(loading.length).every(source => source.starts[0].time > Math.max(...combined.slice(0, loading.length).map(source => source.stops[0]))), 'combined cue finishes loading before closure begins');
+  audio.dispose();
+});
+
+test('explosions combine low pressure, broadband shock and later debris without oscillator pitch dives', async () => {
+  const { audio, context } = await ready();
+  for (const cue of ['fire', 'impact']) {
+    const first = context.sources.length;
+    audio.play(cue);
+    const sources = context.sources.slice(first);
+    assert.ok(sources.every(source => source.kind === 'noise'));
+    const bass = sources.find(source => filterFor(source).type === 'bandpass' && filterFor(source).frequency.events[0].value < 120);
+    assert.ok(bass && bass.starts[0].time < context.currentTime + 0.02, 'low pressure arrives with the main strike');
+    assert.ok(peakFor(bass) >= 0.7, 'filtered low noise retains body instead of leaving only a high-frequency click');
+    assert.ok(sources.some(source => filterFor(source).frequency.events[0].value > 1500 && source.starts[0].time < context.currentTime + 0.02), 'broadband initial shock');
+    assert.ok(sources.some(source => source.starts[0].time > context.currentTime + 0.04), 'separate later debris or diffuse tail');
+    assert.ok(sources.some(source => source.stops[0] - source.starts[0].time > 0.7), 'a slower low tail follows the sharp impact');
+    audio.stopAll();
+  }
+  audio.dispose();
+});
+
 test('an 81-cell salvo is a bounded stereo cluster with several nearly simultaneous impacts', async () => {
   const { audio, context } = await ready();
   assert.equal(audio.play('salvoImpact', { count: 81 }), true);
   assert.equal(context.sources.length, 36, 'six impact positions with six layers each');
-  const bodies = context.sources.filter(source => source.kind === 'oscillator');
+  const bodies = context.sources.filter(source => filterFor(source)?.type === 'bandpass' && filterFor(source).frequency.events[0].value < 120);
   assert.equal(bodies.length, 6);
   const starts = bodies.map(source => source.starts[0].time);
   assert.equal(new Set(starts).size, 6);

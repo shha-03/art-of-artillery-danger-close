@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runFiringSequence, stagePassed } from './dist/firing-sequence.js';
+import { FIRING_TIMING, runFiringSequence, stagePassed } from './dist/firing-sequence.js';
 
 function fixture(failedStage = null, extra = {}) {
   const advances = [];
@@ -28,12 +28,40 @@ test('a salvo checks in order, launches and impacts together, then commits after
   } });
   assert.deepEqual(advances, ['initial', 'preservation', 'goal']);
   assert.deepEqual(events.map(e => e.type === 'phase' ? e.phase : `${e.type}${e.stage ? ':' + e.stage : ''}`), [
-    'checking:initial','checked:initial','breech-open','checking:preservation','checked:preservation','loaded',
+    'checking:initial','checked:initial','breech-open','checking:preservation','checked:preservation','loading','breech-close',
     'checking:goal','checked:goal','fire','flight-delay','flight','impact','radio','commit','finished',
   ]);
   assert.equal(events.find(e => e.type === 'commit').result, result);
   assert.ok(waits.every(ms => ms > 0));
   assert.equal(events.filter(e => e.phase === 'impact').length, 1);
+});
+
+test('loading finishes before breech closure, and closure finishes before the exit check', async () => {
+  const { iterator } = fixture();
+  const phases = [];
+  let elapsed = 0;
+  await runFiringSequence({ iterator, onEvent: event => phases.push({ ...event, at: elapsed }),
+    wait: async ms => { elapsed += ms; },
+  });
+  const loading = phases.find(event => event.phase === 'loading');
+  const closing = phases.find(event => event.phase === 'breech-close');
+  const exit = phases.find(event => event.type === 'checking' && event.stage === 'goal');
+  assert.equal(closing.at - loading.at, FIRING_TIMING.load);
+  assert.equal(exit.at - closing.at, FIRING_TIMING.close);
+  assert.ok(FIRING_TIMING.load >= 620, 'leave space after the loading sound before closure');
+});
+
+test('cancelling during loading prevents closure, exit verification and firing', async () => {
+  const { iterator, advances } = fixture();
+  const controller = new AbortController();
+  const events = [];
+  const outcome = await runFiringSequence({ iterator, signal: controller.signal,
+    onEvent: event => events.push(event),
+    wait: async () => { if (events.at(-1).phase === 'loading') controller.abort(); },
+  });
+  assert.equal(outcome.cancelled, true);
+  assert.deepEqual(advances, ['initial', 'preservation']);
+  assert.ok(!events.some(event => event.phase === 'breech-close' || event.phase === 'fire' || event.type === 'commit'));
 });
 
 for (const stage of ['initial', 'preservation', 'goal']) {

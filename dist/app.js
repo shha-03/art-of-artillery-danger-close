@@ -360,7 +360,7 @@ async function fire(mode) {
         lastAnalysis=event.analysis;revealedStages.add(event.stage);currentStage=null;renderChecks();
       } else if(event.type==='phase') {
         currentStage=null;setFiringPhase(event.phase);
-        const cues={'breech-open':'breechOpen',loaded:'loadClose',fire:'fire',radio:'radio',failed:'failure'};
+        const cues={'breech-open':'breechOpen',loading:'shellLoad','breech-close':'breechClose',fire:'fire',radio:'radio',failed:'failure'};
         if(cues[event.phase])playCue(cues[event.phase]);
         // Cut to the battlefield before flight begins. A long smooth scroll
         // from the mobile command panel would hide the short shell animation.

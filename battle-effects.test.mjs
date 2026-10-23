@@ -160,3 +160,94 @@ test('reduced motion uses static markers and reacts to a preference change durin
   assert.equal(env.battlefield.querySelector('.fx-battle-layer').getAttribute('aria-hidden'), 'true');
   effects.dispose();
 });
+
+test('round insertion completes with the breech open, then closing locks it in a separate phase', () => {
+  const env = environment();
+  const effects = createBattleEffects(env);
+  const mechanism = env.commandPanel.querySelector('.fx-mechanism');
+  effects.setPhase('breech-open');
+  assert.equal(mechanism.dataset.breech, 'open');
+  assert.equal(mechanism.dataset.round, 'waiting');
+  effects.setPhase('preservation');
+  effects.setPhase('loading');
+  assert.equal(env.commandPanel.dataset.fxPhase, 'loading');
+  assert.equal(mechanism.dataset.breech, 'open');
+  assert.equal(mechanism.dataset.round, 'inserting');
+  env.advance(BATTLE_EFFECT_TIMING.loadingMotion - 1);
+  assert.equal(mechanism.dataset.round, 'inserting');
+  env.advance(BATTLE_EFFECT_TIMING.loadingMotion);
+  assert.equal(mechanism.dataset.round, 'seated');
+  assert.equal(mechanism.dataset.breech, 'open');
+  env.advance(620);
+  assert.equal(mechanism.dataset.breech, 'open');
+  effects.setPhase('breech-close');
+  assert.equal(mechanism.dataset.breech, 'closing');
+  assert.equal(mechanism.dataset.round, 'seated');
+  env.advance(620 + BATTLE_EFFECT_TIMING.breechCloseMotion - 1);
+  assert.equal(mechanism.dataset.breech, 'closing');
+  env.advance(620 + BATTLE_EFFECT_TIMING.breechCloseMotion);
+  assert.equal(mechanism.dataset.breech, 'locked');
+  effects.setPhase('goal');
+  assert.equal(mechanism.dataset.breech, 'locked');
+  assert.equal(mechanism.dataset.round, 'seated');
+  effects.dispose();
+});
+
+test('mechanical phase changes and clear cancel stale seating and locking callbacks', () => {
+  const env = environment();
+  const effects = createBattleEffects(env);
+  const mechanism = env.commandPanel.querySelector('.fx-mechanism');
+  effects.setPhase('loading');
+  effects.setPhase('failed');
+  env.advance(700);
+  assert.equal(mechanism.dataset.round, 'inserting');
+  assert.equal(mechanism.dataset.breech, 'open');
+  assert.equal(env.timers.size, 0);
+  effects.setPhase('breech-close');
+  effects.clear();
+  env.advance(2000);
+  assert.equal(mechanism.dataset.phase, 'idle');
+  assert.equal(mechanism.dataset.breech, 'closed');
+  assert.equal(env.timers.size, 0);
+  effects.dispose();
+});
+
+test('failed checks preserve the previous closed, open, or locked mechanical pose', () => {
+  const env = environment({ reduced: true });
+  const effects = createBattleEffects(env);
+  const mechanism = env.commandPanel.querySelector('.fx-mechanism');
+  for (const [checkPhase, breech, round] of [
+    ['initial', 'closed', 'empty'],
+    ['preservation', 'open', 'waiting'],
+    ['goal', 'locked', 'seated'],
+  ]) {
+    effects.clear();
+    effects.setPhase(checkPhase);
+    effects.setPhase('failed');
+    assert.equal(mechanism.dataset.phase, 'failed');
+    assert.equal(mechanism.dataset.breech, breech);
+    assert.equal(mechanism.dataset.round, round);
+  }
+  effects.dispose();
+});
+
+test('reduced motion keeps distinct open-loaded and closed-locked static poses', () => {
+  const env = environment({ reduced: true });
+  const effects = createBattleEffects(env);
+  const mechanism = env.commandPanel.querySelector('.fx-mechanism');
+  effects.setPhase('loading');
+  assert.equal(mechanism.dataset.round, 'seated');
+  assert.equal(mechanism.dataset.breech, 'open');
+  assert.equal(env.timers.size, 0);
+  effects.setPhase('breech-close');
+  assert.equal(mechanism.dataset.breech, 'locked');
+  assert.equal(env.timers.size, 0);
+  env.motion(false);
+  effects.setPhase('loading');
+  assert.equal(mechanism.dataset.round, 'inserting');
+  env.motion(true);
+  assert.equal(mechanism.dataset.round, 'seated');
+  assert.equal(mechanism.dataset.breech, 'open');
+  assert.equal(env.timers.size, 0);
+  effects.dispose();
+});

@@ -190,48 +190,78 @@ export function createArtilleryAudio({ contextFactory, random = Math.random } = 
     at, duration, gain, noise: 'white', filter: { type: 'lowpass', frequency }, ...options,
   });
   const tone = (at, duration, gain, frequency, options = {}) => sourceVoice({ at, duration, gain, frequency, ...options });
-  const metal = (at, weight = 1, pan = 0) => {
-    tone(at, 0.16, 0.075 * weight, 720, { pan, wet: 0.13 });
-    tone(at + 0.002, 0.105, 0.035 * weight, 1273, { pan, wet: 0.12 });
+  const metal = (at, weight = 1, pan = 0, length = 1) => {
+    // Short, independently damped, non-harmonic noise resonances. These are
+    // contact sounds rather than pitched oscillator notes or downward sweeps.
+    noise(at, 0.055 * length, 0.075 * weight, 330, { filter: { type: 'bandpass', frequency: 330, q: 3.1 }, pan, wet: 0 });
+    noise(at + 0.002, 0.045 * length, 0.05 * weight, 807, { filter: { type: 'bandpass', frequency: 807, q: 4.2 }, pan, wet: 0 });
+    noise(at + 0.004, 0.03 * length, 0.03 * weight, 1469, { filter: { type: 'bandpass', frequency: 1469, q: 3.6 }, pan, wet: 0 });
   };
 
   function breechOpen(at) {
-    noise(at, 0.024, 0.14, 3400, { filter: { type: 'highpass', frequency: 1900 }, wet: 0.08 });
-    metal(at + 0.008, 0.8, -0.16);
-    noise(at + 0.045, 0.34, 0.16, 700, { filter: { type: 'bandpass', frequency: 630, endFrequency: 390, q: 0.6 }, attack: 0.025, sustain: 0.65, pan: -0.12, wet: 0.08 });
-    tone(at + 0.06, 0.29, 0.085, 165, { endFrequency: 138, pan: -0.08, wet: 0.1 });
-    noise(at + 0.37, 0.11, 0.19, 490, { noise: 'brown', pan: -0.15, wet: 0.12 });
-    tone(at + 0.37, 0.14, 0.09, 228, { endFrequency: 181, wet: 0.15 });
+    // Unlock, drag along the guides, then meet the open stop. Mechanical cues
+    // are dry so their actual end is bounded, without a shared reverb tail.
+    noise(at, 0.018, 0.11, 3400, { filter: { type: 'highpass', frequency: 1700 }, wet: 0 });
+    noise(at + 0.005, 0.035, 0.10, 450, { filter: { type: 'bandpass', frequency: 450, q: 0.9 }, wet: 0 });
+    metal(at + 0.009, 0.7, -0.12);
+    noise(at + 0.045, 0.24, 0.14, 630, { filter: { type: 'bandpass', frequency: 630, q: 0.7 }, attack: 0.02, sustain: 0.65, pan: -0.12, wet: 0 });
+    noise(at + 0.11, 0.025, 0.055, 1450, { filter: { type: 'bandpass', frequency: 1450, q: 1 }, pan: -0.12, wet: 0 });
+    noise(at + 0.205, 0.02, 0.045, 2900, { filter: { type: 'highpass', frequency: 1900 }, wet: 0 });
+    noise(at + 0.315, 0.10, 0.23, 340, { noise: 'brown', pan: -0.15, wet: 0 });
+    noise(at + 0.318, 0.05, 0.13, 270, { filter: { type: 'bandpass', frequency: 270, q: 0.9 }, wet: 0 });
+    metal(at + 0.325, 0.45, -0.15);
+  }
+
+  function shellLoad(at) {
+    // Sliding/ramming texture precedes the main seating impact near 300 ms.
+    noise(at, 0.26, 0.16, 470, { filter: { type: 'bandpass', frequency: 470, q: 0.6 }, attack: 0.025, sustain: 0.65, pan: 0.12, wet: 0 });
+    noise(at + 0.026, 0.20, 0.08, 1550, { filter: { type: 'bandpass', frequency: 1550, q: 0.5 }, attack: 0.035, sustain: 0.6, pan: 0.14, wet: 0 });
+    noise(at + 0.105, 0.024, 0.06, 2100, { pan: 0.1, wet: 0 });
+    noise(at + 0.18, 0.035, 0.07, 950, { filter: { type: 'bandpass', frequency: 950, q: 1.2 }, wet: 0 });
+    noise(at + 0.292, 0.115, 0.29, 380, { noise: 'brown', pan: 0.08, wet: 0 });
+    noise(at + 0.294, 0.07, 0.18, 310, { filter: { type: 'bandpass', frequency: 310, q: 0.8 }, wet: 0 });
+    metal(at + 0.298, 0.6, 0.08);
+    noise(at + 0.40, 0.065, 0.06, 760, { filter: { type: 'bandpass', frequency: 760, q: 0.7 }, wet: 0 });
+    noise(at + 0.446, 0.035, 0.035, 1400, { wet: 0 });
+  }
+
+  function breechClose(at) {
+    // A short closing movement, a heavy seat, then a separate locking latch.
+    noise(at, 0.18, 0.12, 420, { filter: { type: 'bandpass', frequency: 420, q: 0.7 }, attack: 0.008, sustain: 0.65, wet: 0 });
+    noise(at + 0.225, 0.09, 0.28, 390, { noise: 'brown', wet: 0 });
+    noise(at + 0.227, 0.055, 0.24, 250, { filter: { type: 'bandpass', frequency: 250, q: 0.9 }, wet: 0 });
+    noise(at + 0.226, 0.012, 0.12, 3400, { filter: { type: 'highpass', frequency: 1400 }, wet: 0 });
+    metal(at + 0.231, 0.75, 0.06);
+    noise(at + 0.32, 0.012, 0.13, 3300, { filter: { type: 'highpass', frequency: 1700 }, wet: 0 });
+    noise(at + 0.321, 0.03, 0.08, 530, { filter: { type: 'bandpass', frequency: 530, q: 1.1 }, wet: 0 });
+    metal(at + 0.32, 0.4, 0.06, 0.75);
   }
 
   function loadClose(at) {
-    noise(at, 0.29, 0.13, 820, { filter: { type: 'bandpass', frequency: 540, q: 0.55 }, attack: 0.04, sustain: 0.6, pan: 0.12, wet: 0.06 });
-    tone(at + 0.12, 0.10, 0.04, 880, { pan: 0.16, wet: 0.08 });
-    noise(at + 0.24, 0.14, 0.12, 1400, { attack: 0.015, wet: 0.08 });
-    noise(at + 0.39, 0.10, 0.27, 920, { noise: 'brown', wet: 0.18 });
-    noise(at + 0.391, 0.022, 0.11, 3500, { wet: 0.1 });
-    tone(at + 0.39, 0.23, 0.18, 177, { endFrequency: 142, wet: 0.18 });
-    metal(at + 0.395, 0.68, 0.08);
+    // Compatibility for older callers; new animation stages use separate cues.
+    shellLoad(at);
+    breechClose(at + 0.54);
   }
 
   function fire(at) {
-    noise(at, 0.035, 0.36, 5500, { filter: { type: 'highpass', frequency: 1300 }, wet: 0.25 });
-    noise(at + 0.002, 0.23, 0.46, 1900, { filter: { type: 'lowpass', frequency: 1900, endFrequency: 550 }, wet: 0.5 });
-    tone(at, 0.72, 0.48, 118, { endFrequency: 33, wet: 0.32 });
-    tone(at + 0.012, 0.23, 0.20, 62, { endFrequency: 27, wet: 0.15 });
-    noise(at + 0.018, 1.45, 0.42, 180, { noise: 'brown', attack: 0.025, wet: 0.7 });
-    noise(at + 0.08, 0.9, 0.15, 420, { noise: 'brown', pan: -0.2, wet: 0.55 });
-    noise(at + 0.145, 0.22, 0.11, 1000, { pan: -0.58, wet: 0.4 });
-    noise(at + 0.23, 0.31, 0.075, 700, { pan: 0.52, wet: 0.45 });
+    // A pressure impulse and broadband combustion, without a pitched bass dive.
+    noise(at, 0.012, 0.34, 5500, { filter: { type: 'highpass', frequency: 1800 }, wet: 0.12 });
+    noise(at + 0.001, 0.24, 1.04, 85, { noise: 'brown', filter: { type: 'bandpass', frequency: 85, q: 0.85 }, attack: 0.001, wet: 0.08 });
+    noise(at + 0.002, 0.15, 0.63, 165, { filter: { type: 'bandpass', frequency: 165, q: 0.7 }, attack: 0.001, wet: 0.12 });
+    noise(at + 0.004, 0.31, 0.72, 1950, { filter: { type: 'lowpass', frequency: 1950, endFrequency: 420 }, wet: 0.26 });
+    noise(at + 0.02, 0.95, 0.62, 210, { noise: 'brown', attack: 0.015, wet: 0.42 });
+    noise(at + 0.065, 0.60, 0.18, 640, { filter: { type: 'bandpass', frequency: 640, q: 0.5 }, pan: -0.15, wet: 0.3 });
+    noise(at + 0.16, 0.18, 0.10, 950, { pan: -0.55, wet: 0.35 });
+    noise(at + 0.26, 0.26, 0.07, 720, { pan: 0.5, wet: 0.4 });
   }
 
   function impact(at, pan = 0, scale = 1) {
-    tone(at, 0.61, 0.32 * scale, 86 + rand() * 25, { endFrequency: 31, pan, wet: 0.38 });
-    noise(at, 0.24, 0.34 * scale, 1900, { filter: { type: 'lowpass', frequency: 2200, endFrequency: 500 }, pan, wet: 0.38 });
-    noise(at + 0.014, 0.48, 0.16 * scale, 1500, { filter: { type: 'bandpass', frequency: 1250, q: 0.45 }, pan, wet: 0.23 });
-    noise(at + 0.039, 0.055, 0.115 * scale, 4000, { pan: Math.max(-1, pan - 0.13), wet: 0.18 });
-    noise(at + 0.076, 0.078, 0.075 * scale, 2700, { pan: Math.min(1, pan + 0.16), wet: 0.2 });
-    noise(at + 0.03, 1.04, 0.28 * scale, 165, { noise: 'brown', attack: 0.035, pan, wet: 0.48 });
+    noise(at, 0.24, 0.72 * scale, 95, { noise: 'brown', filter: { type: 'bandpass', frequency: 86 + rand() * 25, q: 0.8 }, attack: 0.001, pan, wet: 0.18 });
+    noise(at, 0.21, 0.50 * scale, 2400, { filter: { type: 'lowpass', frequency: 2400, endFrequency: 500 }, pan, wet: 0.24 });
+    noise(at + 0.014, 0.30, 0.16 * scale, 1050, { filter: { type: 'bandpass', frequency: 1050, q: 0.45 }, pan, wet: 0.16 });
+    noise(at + 0.037, 0.055, 0.105 * scale, 4000, { pan: Math.max(-1, pan - 0.13), wet: 0.14 });
+    noise(at + 0.075, 0.07, 0.065 * scale, 2700, { pan: Math.min(1, pan + 0.16), wet: 0.16 });
+    noise(at + 0.03, 0.76, 0.45 * scale, 180, { noise: 'brown', attack: 0.018, pan, wet: 0.34 });
   }
 
   function salvoImpact(at, count) {
@@ -265,15 +295,15 @@ export function createArtilleryAudio({ contextFactory, random = Math.random } = 
   }
 
   function failure(at) {
-    noise(at, 0.07, 0.10, 800, { noise: 'brown', wet: 0.08 });
-    tone(at + 0.015, 0.18, 0.085, 205, { endFrequency: 153, wet: 0.07 });
-    tone(at + 0.06, 0.11, 0.035, 92, { type: 'sawtooth', filter: { type: 'lowpass', frequency: 420 }, wet: 0.04 });
-    noise(at + 0.19, 0.04, 0.045, 1100, { wet: 0.03 });
+    noise(at, 0.025, 0.08, 1600, { wet: 0 });
+    noise(at + 0.015, 0.12, 0.16, 280, { noise: 'brown', wet: 0 });
+    noise(at + 0.06, 0.065, 0.06, 430, { filter: { type: 'bandpass', frequency: 430, q: 1.3 }, wet: 0 });
+    noise(at + 0.19, 0.025, 0.04, 1100, { wet: 0 });
   }
 
   function play(cue, options = {}) {
     if (!enabled || disposed || !context || context.state !== 'running') return false;
-    const effects = { breechOpen, loadClose, fire, impact, salvoImpact, radio, bugle, failure };
+    const effects = { breechOpen, shellLoad, breechClose, loadClose, fire, impact, salvoImpact, radio, bugle, failure };
     if (!Object.hasOwn(effects, cue)) return false;
     try {
       prepareBuses();

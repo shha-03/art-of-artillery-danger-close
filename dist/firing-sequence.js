@@ -1,7 +1,7 @@
 // Presentation timing is independent of the verifier. Each iterator advance
 // performs exactly one proof stage; battle state is committed only after radio.
 export const FIRING_TIMING = Object.freeze({
-  check: 280, breech: 480, load: 850, muzzle: 180,
+  check: 280, breech: 480, load: 620, close: 440, muzzle: 180,
   flightDelay: 220, flight: 640, impact: 700, radio: 120, report: 280,
 });
 export const VERIFICATION_STAGES = Object.freeze(['initial', 'preservation', 'goal']);
@@ -45,9 +45,14 @@ export async function runFiringSequence({ iterator, mode, onEvent, signal, wait 
       if (!stopped.done) throw new Error('Verifier continued after a failed stage.');
       return finishEarly(stopped.value);
     }
-    if (stage !== 'goal') {
-      emit({ type: 'phase', phase: stage === 'initial' ? 'breech-open' : 'loaded' });
-      if (!await pause(stage === 'initial' ? timing.breech : timing.load)) return cancelled();
+    if (stage === 'initial') {
+      emit({ type: 'phase', phase: 'breech-open' });
+      if (!await pause(timing.breech)) return cancelled();
+    } else if (stage === 'preservation') {
+      emit({ type: 'phase', phase: 'loading' });
+      if (!await pause(timing.load)) return cancelled();
+      emit({ type: 'phase', phase: 'breech-close' });
+      if (!await pause(timing.close)) return cancelled();
     }
   }
   const final = iterator.next();

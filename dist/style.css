@@ -576,7 +576,7 @@ html[lang="en"] .fire-button small { font-size: 9px; line-height: 1.5; white-spa
 .sequence-status-title, .sequence-status > strong { color: var(--cream); font-size: 12px; font-weight: 650; line-height: 1.5; }
 .sequence-status-detail, .sequence-status > small { flex-basis: 100%; color: #9ba58d; font-size: 10px; line-height: 1.65; overflow-wrap: anywhere; }
 .sequence-status[data-phase="initial"], .sequence-status[data-phase="preservation"], .sequence-status[data-phase="goal"] { border-left-color: var(--orange); }
-.sequence-status[data-phase="breech-open"], .sequence-status[data-phase="loaded"] { border-left-color: #d1b977; }
+.sequence-status[data-phase="breech-open"], .sequence-status[data-phase="loading"], .sequence-status[data-phase="breech-close"] { border-left-color: #d1b977; }
 .sequence-status[data-phase="fire"], .sequence-status[data-phase="flight"], .sequence-status[data-phase="impact"] { border-color: #6b5137; border-left-color: var(--orange-bright); background: #29271d; }
 .sequence-status[data-phase="radio"], .sequence-status[data-phase="complete"] { border-left-color: var(--sage); }
 .sequence-status[data-phase="failed"] { border-left-color: var(--danger); background: #2c241c; }
@@ -588,15 +588,17 @@ html[lang="en"] .fire-button small { font-size: 9px; line-height: 1.5; white-spa
 .check-item.blocked .check-icon, .check-item.blocked .check-title { color: #7d856f; }
 .check-item.blocked .check-detail { color: #858b77; }
 .fx-mechanism-slot { min-width: 0; margin: 0 0 12px; }
-.fx-mechanism { --fx-breech-offset: 0px; --fx-round-offset: -43px; --fx-round-opacity: 0; width: 100%; overflow: hidden; border: 1px solid var(--line); border-top: 0; background: linear-gradient(90deg, #151c15, #20261b 66%, #171e16); }
+.fx-mechanism { --fx-breech-offset: 0px; --fx-lock-angle: 0deg; --fx-round-offset: -43px; --fx-round-opacity: 0; width: 100%; overflow: hidden; border: 1px solid var(--line); border-top: 0; background: linear-gradient(90deg, #151c15, #20261b 66%, #171e16); }
 .fx-mechanism svg { display: block; width: 100%; height: 72px; }
 .fx-guide { fill: none; stroke: #46513b; stroke-width: 1; }
 .fx-mount { fill: #2b3525; stroke: #82916c; stroke-width: 1.5; }
 .fx-barrel, .fx-chamber { fill: #4a553e; stroke: #a7ae8d; stroke-width: 1.4; }
 .fx-chamber-interior { fill: #121a11; stroke: #8a9272; stroke-width: 1; }
 .fx-rifling { fill: none; stroke: #c8c7a3; stroke-width: 1; opacity: .45; }
-.fx-breech { fill: #758064; stroke: #c2c9a7; stroke-width: 1.3; transform: translateX(var(--fx-breech-offset)); transition: transform .22s ease-out; }
-.fx-round { fill: #d2a65e; stroke: #e9ca8a; stroke-width: 1; transform: translateX(var(--fx-round-offset)); opacity: var(--fx-round-opacity); transition: transform .3s ease-out, opacity .16s ease-out; }
+.fx-breech { fill: #758064; stroke: #c2c9a7; stroke-width: 1.3; transform: translateY(var(--fx-breech-offset)); transition: transform .24s cubic-bezier(.25, .7, .3, 1); }
+.fx-lock-lever { fill: #b4bda0; stroke: #d5d8bd; stroke-width: 2; transform-origin: 99px 32px; transform: rotate(var(--fx-lock-angle)); transition: transform .12s ease-out; }
+.fx-lock-lever > path { fill: none; }
+.fx-round { fill: #d2a65e; stroke: #e9ca8a; stroke-width: 1; transform: translateX(var(--fx-round-offset)); opacity: var(--fx-round-opacity); transition: transform .32s cubic-bezier(.25, .65, .28, 1), opacity .16s ease-out; }
 .fx-round-band { fill: none; stroke: #795a32; stroke-width: 2; }
 .fx-ready-lamp { fill: #586348; transition: fill .2s; }
 .fx-radio-glyph { fill: none; stroke: #9eb38c; stroke-width: 1.6; opacity: .25; }
@@ -604,16 +606,19 @@ html[lang="en"] .fire-button small { font-size: 9px; line-height: 1.5; white-spa
 .fx-muzzle-flash path:first-child { fill: #e49b50; }
 .fx-muzzle-flash path:last-child { fill: #edd39d; }
 .fx-mechanism[data-phase="initial"] .fx-ready-lamp { fill: #d1b477; }
-.fx-mechanism[data-phase="breech-open"], .fx-mechanism[data-phase="preservation"] { --fx-breech-offset: -24px; --fx-round-opacity: 1; }
-.fx-mechanism[data-phase="loaded"], .fx-mechanism[data-phase="goal"] { --fx-round-offset: 0px; --fx-round-opacity: 1; }
-.fx-mechanism[data-phase="loaded"] .fx-ready-lamp, .fx-mechanism[data-phase="goal"] .fx-ready-lamp { fill: #b4c69a; }
+.fx-mechanism[data-breech="open"] { --fx-breech-offset: 24px; --fx-lock-angle: -55deg; }
+.fx-mechanism[data-round="waiting"] { --fx-round-opacity: 1; }
+.fx-mechanism[data-round="inserting"], .fx-mechanism[data-round="seated"] { --fx-round-offset: 0px; --fx-round-opacity: 1; }
+.fx-mechanism[data-phase="loading"] .fx-ready-lamp, .fx-mechanism[data-phase="breech-close"] .fx-ready-lamp { fill: #d1b477; }
+/* The block closes first; only then does the handle turn into its lock. */
+.fx-mechanism[data-phase="breech-close"] .fx-lock-lever { transition-delay: .24s; }
+.fx-mechanism[data-breech="locked"] .fx-ready-lamp, .fx-mechanism[data-phase="goal"] .fx-ready-lamp { fill: #b4c69a; }
 .fx-mechanism[data-phase="goal"] .fx-chamber { stroke: #c9b575; }
 .fx-mechanism[data-phase="fire"] .fx-recoil-unit { animation: fx-cannon-recoil .34s ease-out both; }
 .fx-mechanism[data-phase="fire"] .fx-muzzle-flash { animation: fx-muzzle .28s ease-out both; }
 .fx-mechanism[data-phase="flight"] .fx-ready-lamp, .fx-mechanism[data-phase="impact"] .fx-ready-lamp { fill: var(--orange); }
 .fx-mechanism[data-phase="radio"] .fx-radio-glyph { animation: fx-radio-signal .72s ease-out both; }
 .fx-mechanism[data-phase="complete"] .fx-ready-lamp { fill: #bfcca8; }
-.fx-mechanism[data-phase="failed"] { --fx-breech-offset: -24px; --fx-round-opacity: .45; }
 .fx-mechanism[data-phase="failed"] .fx-ready-lamp { fill: #bd805e; }
 .fx-battle-layer { position: absolute; inset: 0; z-index: 30; width: 100%; height: 100%; overflow: hidden; pointer-events: none; user-select: none; }
 .fx-battle-layer * { pointer-events: none; }
