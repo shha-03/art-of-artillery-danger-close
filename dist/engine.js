@@ -1,7 +1,9 @@
 import { UNIT_TYPES, unitPoints } from './unit-types.js';
 
 /**
- * Danger Close: a dependency-free, finite-state invariant checker.
+ * Shared expression, visualization, and battle mechanics. Interactive proof
+ * uses smt-engine.js. Bounded analyze/order remain explicit regression oracles,
+ * never a fallback for an unavailable or inconclusive SMT solver.
  *
  * The default verification window is {-32,...,32}². Levels may declare x/y/z
  * and a separate finite integer interval for each axis. We enumerate every state in that
@@ -76,6 +78,9 @@ const ERROR_MESSAGES = {
     'invalid-unit-branch': (p) => `미지원 병과 '${p.branch}' 확인. 등록된 병과를 지정하라.`,
     'invalid-command-budget': () => '명령 횟수 오류. 0 이상의 정수가 필요하다.',
     'invalid-mode': () => '사격 방식 오류. single 또는 salvo를 지정하라.',
+    'smt-unknown': (p) => `Z3 판정 미완료: ${p.reason || p.detail || '시간 초과 또는 unknown'}. 수식을 조정한 뒤 다시 시도하라.`,
+    'smt-unavailable': () => 'Z3를 준비하지 못했다. 브라우저와 네트워크를 확인하고 다시 시도하라. 전수검사로 대체하지 않는다.',
+    'smt-undefined-expression': () => '검증 대상 상태에서 정의되지 않는 산술 연산이 있다. 0으로 나누는 경우를 배제하라.',
     'unexpected-error': (p) => p.detail || '알 수 없는 실행 오류. 오류 내용을 확인하라.',
   },
   en: {
@@ -121,6 +126,9 @@ const ERROR_MESSAGES = {
     'invalid-unit-branch': (p) => `Unsupported unit branch '${p.branch}'. Select a registered branch.`,
     'invalid-command-budget': () => 'Command budget invalid. Use a nonnegative integer.',
     'invalid-mode': () => 'Fire mode invalid. Select single or salvo.',
+    'smt-unknown': (p) => `Z3 could not decide: ${p.reason || p.detail || 'timeout or unknown'}. Revise the expression and retry.`,
+    'smt-unavailable': () => 'Z3 could not start. Check browser support and the network, then retry. Bounded checking is not used as a fallback.',
+    'smt-undefined-expression': () => 'An arithmetic operation is undefined in a checked state. Exclude division by zero.',
     'unexpected-error': (p) => p.detail || 'Unknown execution error. Inspect the error report.',
   },
 };
@@ -761,7 +769,7 @@ function orderOutcome(battle, fields) {
 }
 
 /** Apply an already completed staged report once, without repeating checks. */
-function resolveOrder(battle, analysis, mode) {
+export function resolveOrder(battle, analysis, mode) {
   const outcome = fields => orderOutcome(battle, fields);
   if (analysis.error) return outcome({
     analysis,

@@ -152,22 +152,27 @@ test('static UI and accessibility bindings have matching Korean and English tran
   }
 });
 
-test('initialized-program instructions distinguish universal inputs, test windows, and representative battlefields', () => {
+test('instructions distinguish unbounded Z3 proofs from finite display and scoring windows', () => {
   for (const locale of ['ko', 'en']) {
     const scope = translate(locale, 'externalScope', { count: 81 });
-    assert.match(scope, /81/);
-    assert.match(scope, /342,225/);
+    assert.match(scope, /Z3/);
+    assert.doesNotMatch(scope, /81|342,225/);
     assert.match(COPY[locale].externalInputs, /a, b/);
     assert.match(COPY[locale].externalInputs, /ℤ²/);
-    assert.match(UI_COPY[locale]['manual.scopeBody'], /81/);
-    assert.match(UI_COPY[locale]['manual.scopeBody'], /4,225/);
+    assert.match(UI_COPY[locale]['manual.scopeBody'], /unsat/i);
+    assert.match(UI_COPY[locale]['manual.scopeBody'], /unknown/i);
+    assert.doesNotMatch(UI_COPY[locale]['manual.scopeBody'], /81|4,225/);
     assert.match(UI_COPY[locale]['manual.syntax'], /a, b, n, m/);
     for (const key of ['battlefieldInputs', 'battlefieldInputsHelp', 'initializedState', 'inputContext']) {
       assert.ok(COPY[locale][key]?.trim(), `${locale}: ${key}`);
     }
   }
-  assert.match(COPY.ko.goalPassed, /무한 정수 전체의 증명은 아니다/);
-  assert.match(COPY.en.goalPassed, /not a proof over unbounded integers/);
+  assert.match(COPY.ko.goalPassed, /모든 정수/);
+  assert.match(COPY.en.goalPassed, /all integers/);
+  assert.match(COPY.ko.activeStateWindow, /표시·배점용/);
+  assert.match(COPY.en.activeStateWindow, /Display and scoring/);
+  assert.match(UI_COPY.ko['manual.scopeBody'], /종료성을 증명하지 않는다/);
+  assert.match(UI_COPY.en['manual.scopeBody'], /does not prove loop termination/);
 });
 
 test('the HTML exposes initialization and a read-only mathematical goal before JavaScript loads', () => {

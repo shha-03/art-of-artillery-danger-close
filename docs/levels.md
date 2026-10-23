@@ -25,20 +25,26 @@ The three obligations discussed below are:
 2. **Preservation:** whenever the invariant and loop guard hold, one complete iteration establishes the invariant again.
 3. **On exit:** the invariant together with the negated guard implies the fixed `ensures`.
 
-An invariant may include unreachable states. Extra bounds are deliberately omitted when they are unnecessary for these obligations. The explanations give algebraic arguments over mathematical integers; they do not mean that the game has proved those arguments automatically. They address partial correctness, not a termination proof by the game.
+An invariant may include unreachable states. Extra bounds are deliberately omitted when they are unnecessary for these obligations. The explanations give algebraic arguments over mathematical integers. The game uses Z3 to check the corresponding symbolic obligations over that same unbounded integer domain; an obligation passes only when its negation is unsatisfiable. These obligations address partial correctness, not a termination proof.
 
 ## Input and verification scope
 
-The mathematical input contract is all integer pairs. The interactive checker exhaustively tests only `-4 <= a, b <= 4` (81 inputs) and the finite state windows below. A passing result is not an unbounded proof, and the checker does not prove loop termination. It rejects an active transition that leaves the declared state window rather than silently clipping the successor.
+Both the input contract and the Z3 verification domain cover all mathematical integer pairs `(a, b) ∈ ℤ²`. The solver derives `n = |a|` and `m = |b|` from the authored initialization, then checks initiation, preservation, and the fixed postcondition without coordinate or input-window bounds. Preservation includes hypothetical unreachable states satisfying the invariant and guard. Leaving the visible map or a display window does not by itself fail preservation.
 
-| Operations | State window | States per external input |
-| --- | --- | ---: |
-| `g01`–`g20` | `-32 <= x, y <= 32` | 4,225 |
-| `s01` | `0 <= x <= 4`, `0 <= y <= 20`, `1 <= z <= 9` | 945 |
-| `s02`, `s03` | `0 <= x, y, z <= 4` | 125 |
-| `s04` | `0 <= x <= 4`, `0 <= y <= 32`, `0 <= z <= 16` | 2,805 |
+Before each logical obligation, the game checks that relevant expressions are defined. Division or remainder by zero is rejected, respecting Boolean short-circuiting. A solver result of `unsat` proves the obligation; `sat` supplies an exact integer counterexample. A timeout or `unknown` result is inconclusive and stops the order without damage or an order charge. There is no finite-checking fallback. Nonlinear arithmetic may be inconclusive even for a correct invariant. The game does not prove loop termination.
 
-Each battlefield uses three representative external inputs. Enemy positions are their actual loop endpoints, with duplicate coordinates merged. These samples illustrate the algorithm; they do not restrict its mathematical input contract. Candidate targets come from the invariant and the negated guard for those samples, so even a correct invariant can include neutral cells. In three-variable operations, the selected `z` layer changes the view only; checking and salvos cover every relevant layer.
+Each battlefield uses three representative external inputs. Enemy positions are their actual loop endpoints, with duplicate coordinates merged. These samples illustrate the algorithm and never restrict the proof domain. Candidate targets come from the invariant and negated guard for those samples, restricted to the visible board. A correct invariant can still include neutral cells.
+
+The finite dimensions below are retained for visualization, example traces, and the existing scoring approximation. They are not assumptions supplied to Z3.
+
+| Operations | Visible x–y board | Available z layers |
+| --- | --- | --- |
+| `g01`–`g20` | `0 <= x, y <= 8` | Two-dimensional board. |
+| `s01` | `0 <= x, y <= 8` | `1 <= z <= 9` |
+| `s02`, `s03` | `0 <= x, y <= 8` | `0 <= z <= 4` |
+| `s04` | `0 <= x, y <= 8` | `0 <= z <= 16` |
+
+In three-variable operations, the selected `z` layer changes the view only. Salvos cover every available battlefield layer; the proof itself covers all integer values of `z`.
 
 ## Campaign index
 

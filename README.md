@@ -6,27 +6,24 @@ Command artillery by writing loop invariants. Eliminate enemy units while protec
 
 [Play the deployed game](https://art-of-artillery-danger-close.duskykoala25.chatgpt.site/) directly in your browser. No installation is required.
 
-To run the game locally, install Node.js with npm, then run this command from the project directory:
+To run the game locally, install Node.js 20 or later, then run this command from the project directory:
 
 ```sh
 node server.mjs
 ```
 
-Open [http://127.0.0.1:4173](http://127.0.0.1:4173) in a browser. No dependency installation or build step is required. Stop the server with `Ctrl+C`.
+Open [http://127.0.0.1:4173](http://127.0.0.1:4173) in a modern browser. The committed files include the Z3 solver, so local play needs no dependency installation or build step. Use the server rather than opening `index.html` directly. Stop the server with `Ctrl+C`.
 
 ## Test
 
-Run the complete test suite from the project directory:
+Install the pinned test dependencies with npm, then run the complete suite from the project directory:
 
 ```sh
+npm ci
 npm test
 ```
 
-If npm is unavailable, use the built-in Node.js test runner:
-
-```sh
-node --test
-```
+Tests use Node.js 20 or later and include real Z3 verification of all 24 example solutions.
 
 ## How to play
 
@@ -42,7 +39,7 @@ The battlefield map is on the left; the invariant editor and firing controls are
 
 Use **Intel report** when you need help. Its first hint includes the former default formula as a reference; it does not fill the editor. The final hint reveals an example solution and explanation. Restarting or switching operations starts with an empty invariant field.
 
-Expressions support integers, the operation's variables and input constants, `+ - * / %`, comparisons, `&&`, `||`, `!`, parentheses, `true`, and `false`. For example, combine bounds as `x >= 0 && x <= n`. `/` is integer division and `%` returns a nonnegative remainder. Consult the in-game **Field manual** for the full syntax and test windows.
+Expressions support integers, the operation's variables and input constants, `+ - * / %`, comparisons, `&&`, `||`, `!`, parentheses, `true`, and `false`. For example, combine bounds as `x >= 0 && x <= n`. `/` is integer division and `%` returns a nonnegative remainder. Consult the in-game **Field manual** for the full syntax and verification details.
 
 Keyboard shortcuts: `Ctrl+Enter` fires a single shot; `Ctrl+Shift+Enter` fires a salvo. The language selector switches between Korean and English without resetting the operation. Sound can be toggled independently.
 
@@ -51,7 +48,7 @@ Keyboard shortcuts: `Ctrl+Enter` fires a single shot; `Ctrl+Shift+Enter` fires a
 - Each operation starts with **six orders**. A single shot hits one unstruck candidate; a salvo hits every unstruck candidate. Either costs **one order**, including salvos across all `z` layers.
 - Candidates satisfy both your invariant and the loop's exit condition for the displayed battlefield inputs. Target priority is **neutral, then friendly, then enemy**; ties use coordinate order. Previously struck cells are never targeted again. Selecting a layer changes only the view.
 - Checks run in sequence: **Initiation → Preservation → Guarantee on exit**. Failed initiation or preservation stops later checks and produces a dud: one order spent, no damage.
-- A failed guarantee on exit still permits firing and damage if initiation and preservation passed. Syntax or arithmetic errors stop the order without charging it. Empty inputs cannot fire; an otherwise valid order with no remaining candidates also costs nothing.
+- A failed guarantee on exit still permits firing and damage if initiation and preservation passed. Syntax or arithmetic errors, unavailable Z3, and inconclusive or timed-out checks stop the order without charging it. Empty inputs cannot fire; an otherwise valid order with no remaining candidates also costs nothing.
 - Destroying all enemies completes the operation, even without a guarantee on exit. Running out of orders while enemies remain ends the operation in failure.
 - Blue rectangular units are friendly; red diamond units are enemies. Destroyed units gain or lose points according to their branch:
 
@@ -70,6 +67,6 @@ The multiplier is **2** when the shot that eliminates the last enemy passes all 
 
 Single shots limit each order's damage; salvos offer a higher score by conserving orders but expose every candidate to fire. A more precise invariant helps exclude friendly positions.
 
-The programs accept arbitrary integer inputs, but automatic verification checks only the finite windows stated in the game. A passing check is not a proof over all integers or a proof that the loop terminates.
+Z3 verifies the obligations over mathematical integers, including arbitrary external inputs and states outside the map. Only a proved result passes a check; a timeout or unknown result does not. These checks establish partial correctness: if the loop exits, the proved postcondition holds. They do not prove that the loop terminates.
 
 For further reading, see [implementation details](docs/implementation.md) and [operation explanations and solutions](docs/levels.md).

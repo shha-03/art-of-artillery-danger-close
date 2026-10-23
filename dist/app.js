@@ -1,4 +1,6 @@
-import { parseExpression, evaluate, initialStatesForLevel, traceInputsForLevel, isInitializedLevel, variablesForLevel, domainsForLevel, stateKey, statePoint, projectPredicate, previewCandidatesForLevel, createBattle, orderStages, formatEngineError } from './engine.js';
+import { parseExpression, evaluate, initialStatesForLevel, traceInputsForLevel, isInitializedLevel, variablesForLevel, domainsForLevel, stateKey, statePoint, projectPredicate, createBattle, formatEngineError } from './engine.js';
+import { orderStagesSmt as orderStages, previewCandidatesSmt } from './smt-engine.js';
+import { checkSmt } from './z3-checker.js';
 import { LEVELS, CHAPTERS } from './levels.js';
 import { dafnyProgram } from './dafny-program.js';
 import { LANGUAGE_STORAGE_KEY, resolveLanguage, translate } from './i18n.js';
@@ -29,8 +31,9 @@ artilleryAudio.setEnabled(sound);
 // Fetch the short recordings early without creating an AudioContext.
 void artilleryAudio.preload().catch(() => {});
 const battleEffects = createBattleEffects({ grid: $('grid'), battlefield: document.querySelector('.battlefield') });
-const BEST_STORAGE_KEY = 'danger-close-best-proof-bonus-v1';
+const BEST_STORAGE_KEY = 'danger-close-best-smt-proof-v1';
 const PREVIOUS_PROOF_STORAGE_KEY = 'danger-close-best-general-v1';
+const FINITE_BEST_STORAGE_KEY = 'danger-close-best-proof-bonus-v1';
 const PREVIOUS_BEST_STORAGE_KEY = 'danger-close-best-branches-v1';
 const LEGACY_BEST_STORAGE_KEY = 'danger-close-best-math-v2';
 function readBestScores(storageKey) {
@@ -41,7 +44,7 @@ function readBestScores(storageKey) {
   return {};
 }
 let best=readBestScores(BEST_STORAGE_KEY);
-const previousProofBest=readBestScores(PREVIOUS_PROOF_STORAGE_KEY);
+const previousProofBest={...readBestScores(PREVIOUS_PROOF_STORAGE_KEY),...readBestScores(FINITE_BEST_STORAGE_KEY)};
 const previousBest=readBestScores(PREVIOUS_BEST_STORAGE_KEY);
 const legacyBest=readBestScores(LEGACY_BEST_STORAGE_KEY);
 let savedLanguage;
@@ -137,7 +140,7 @@ function traceForLevel() {
 function previewCandidates() {
   const taken = new Set(battle.hit.map(key)), enemies = new Set(battle.enemies.map(key)), allies = new Set(battle.allies.map(key));
   let projected=[];
-  try { projected=previewCandidatesForLevel($('invariant-input').value,level()); } catch { return []; }
+  try { projected=previewCandidatesSmt($('invariant-input').value,level()); } catch { return []; }
   const result=projected.filter(p=>!taken.has(key(p))).map(p=>({...p,type:enemies.has(key(p))?'enemy':allies.has(key(p))?'friendly':'neutral'}));
   const priority={neutral:0,friendly:1,enemy:2};
   return result.sort((a,b)=>priority[a.type]-priority[b.type] || a.x-b.x || a.y-b.y || (a.z??0)-(b.z??0));
@@ -295,7 +298,7 @@ function renderChecks() {
     const passed=stagePassed(lastAnalysis,k);
     const warning=k==='goal'&&!passed&&exitAllowsFire(lastAnalysis);
     const state=running?'running':pending?'pending':passed?'pass':warning?'warning':'fail';
-    const detail=running?t('checking'):pending?t('afterOrder'):failedError?t('incomplete'):passed?t(k==='initial'?(level().initialCondition!==undefined?'initialDomainPassed':'initialPassed'):'passed',{count:check.checkedCount}):t(warning?'unprovenFireAllowed':k==='goal'?'unproven':'dud');
+    const detail=running?t('checking'):failedError?t('incomplete'):pending?t('afterOrder'):passed?t('passed'):t(warning?'unprovenFireAllowed':k==='goal'?'unproven':'dud');
     return `<div class="check-item ${state}" data-check="${k}" data-status="${state}"><span class="check-icon">${running?'◌':pending?'○':passed?'✓':warning?'!':'×'}</span><span class="check-title">${esc(t(k))}</span><span class="check-detail">${esc(detail)}</span></div>`;
   }).join('');
   $('verification-strip').setAttribute('aria-busy',String(Boolean(currentStage)));
@@ -317,7 +320,7 @@ function witnessReport(analysis) {
   return t(initial?'initialWitness':'preservationWitness',{before:point(check.before),after:point(check.after),outside:check.outsideDomain?t('outsideDomain'):''})+witnessContext(check.before);
 }
 function witnessContext(state) {
-  return state && Number.isInteger(state.a)?` · ${t('inputContext',state)}`:'';
+  return state && state.a !== undefined?` · ${t('inputContext',state)}`:'';
 }
 function shotReport(event) {
   const enemies=event.shots.filter(shot=>shot.type==='enemy'),friendlies=event.shots.filter(shot=>shot.type==='friendly');
@@ -414,7 +417,7 @@ function applyOrderResult(result,mode,expression) {
   if(result.dud) {
     const failed=lastAnalysis.initial.pass===false?lastAnalysis.initial:lastAnalysis.preservation.pass===false?lastAnalysis.preservation:lastAnalysis.specification?.pass===false?lastAnalysis.specification:lastAnalysis.goal;
     witness=failed?.before||null;
-    if(is3d()&&witness)setLayer(witness.z,{force:true});
+    if(is3d()&&witness&&Number.isSafeInteger(Number(witness.z)))setLayer(Number(witness.z),{force:true});
     feedbackState={type:'dud',mode,analysis:lastAnalysis};
     records.unshift({...feedbackState,kind:'dud',expression});
   } else if(result.shots?.length) {
@@ -451,7 +454,7 @@ async function fire(mode) {
       }
     }
     if(!isCurrent())return;
-    await runFiringSequence({iterator:orderStages(battle,expression,goalSource,mode),mode,signal:controller.signal,onEvent:event=>{
+    await runFiringSequence({iterator:orderStages(battle,expression,goalSource,mode,{check:checkSmt,signal:controller.signal}),mode,signal:controller.signal,onEvent:event=>{
       if(!isCurrent())return;
       if(event.type==='checking') {
         currentStage=event.stage;setFiringPhase(event.stage);renderChecks();
@@ -600,15 +603,3 @@ applyStaticTranslations(language);
 selectTacticalView('map');
 loadLevel(0);
 renderSound();
-
-// Retire the previously shipped isolation worker without touching other apps.
-if ('serviceWorker' in navigator) {
-  const retiredWorker = new URL('./isolation-worker.js', import.meta.url).href;
-  const appScope = new URL('./', import.meta.url).href;
-  navigator.serviceWorker.getRegistrations().then(registrations => Promise.all(
-    registrations.filter(registration => {
-      const workers = [registration.active, registration.waiting, registration.installing].filter(Boolean);
-      return registration.scope === appScope && workers.length > 0 && workers.every(worker => worker.scriptURL === retiredWorker);
-    }).map(registration => registration.unregister())
-  )).catch(() => {});
-}

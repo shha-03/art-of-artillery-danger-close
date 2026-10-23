@@ -40,7 +40,7 @@ function harness({ sound = true, abortResolves = true, manualSequence = false } 
     SOUND_STORAGE_KEY: 'test-sound', localStorage: { setItem() {} },
     $: id => elements.get(id), flash() {}, render() { calls.renders++; },
     renderChecks() {}, renderSound() {}, showResult() {}, playCue() {},
-    selectTacticalView() {},
+    selectTacticalView() {}, checkSmt() {},
     ensureShotLayer() {}, shotsInSelectedLayer(shots) { return shots; },
     setFiringPhase(phase) { context.firingPhase = phase; },
     battleEffects: { clear() {} },

@@ -5,6 +5,16 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test engine.test.mjs initialized-engine.test.mjs xyz-engine.test.mjs dafny-arithmetic.test.mjs dafny-program.test.mjs i18n.test.mjs level-semantics.test.mjs campaign.test.mjs weighted-scoring.test.mjs refinement-risk.test.mjs invariant-simplification.test.mjs staged-order.test.mjs firing-sequence.test.mjs artillery-audio.test.mjs audio-readiness.test.mjs battle-effects.test.mjs layer-view.test.mjs"
+    "test": "node --test engine.test.mjs initialized-engine.test.mjs xyz-engine.test.mjs dafny-arithmetic.test.mjs dafny-program.test.mjs i18n.test.mjs level-semantics.test.mjs campaign.test.mjs weighted-scoring.test.mjs refinement-risk.test.mjs invariant-simplification.test.mjs staged-order.test.mjs firing-sequence.test.mjs artillery-audio.test.mjs audio-readiness.test.mjs battle-effects.test.mjs layer-view.test.mjs smt-program.test.mjs smt-engine.test.mjs z3-checker.test.mjs smt-campaign.test.mjs smt-firing-sequence.test.mjs smt-order-z3.test.mjs",
+    "build": "node scripts/build-z3.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "z3-solver": "5.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   }
 }

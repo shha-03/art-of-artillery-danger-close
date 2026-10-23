@@ -7,6 +7,7 @@ import {
   evaluate, previewCandidatesForLevel, projectPredicate, createBattle,
 } from './dist/engine.js';
 import { translate } from './dist/i18n.js';
+import { previewCandidatesSmt } from './dist/smt-engine.js';
 
 // Exercise the application's real slice selection, rendering, and phase handler
 // with a minimal DOM boundary. Verification remains the real engine's projection.
@@ -34,7 +35,7 @@ function harness(level=sample) {
   $('goal-input').value='x == 0 && y == 0';
   const context={
     $,level:()=>level,variablesForLevel,domainsForLevel,statePoint,stateKey,
-    parseExpression,evaluate,previewCandidatesForLevel,projectPredicate,
+    parseExpression,evaluate,previewCandidatesForLevel,previewCandidatesSmt,projectPredicate,
     key:stateKey,point:p=>`(${Object.values(statePoint(p)).join(', ')})`,
     esc:value=>String(value).replaceAll('&','&amp;').replaceAll('"','&quot;'),
     pad:n=>String(n).padStart(2,'0'),language:'ko',translate,
@@ -129,7 +130,7 @@ test('the actual firing phase projects effects to a hit layer but preserves glob
     selectTacticalView(){},render(){},renderChecks(){},showResult(){},
     setFiringPhase(phase){c.firingPhase=phase;},
     playCue(cue,options){h.calls.sounds.push({cue,options});},
-    artilleryAudio:{stopAll(){}},orderStages(){return {};},
+    artilleryAudio:{stopAll(){}},orderStages(){return {};},checkSmt(){},
     document:{querySelector:()=>({scrollIntoView(){}})},
     runFiringSequence:async options=>{emit=options.onEvent;},
   });

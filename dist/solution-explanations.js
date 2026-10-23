@@ -1,4 +1,6 @@
-// Mathematical arguments over integers, separate from the finite game checker.
+// Mathematical arguments for the unbounded integer obligations checked by Z3.
+// Any termination arguments explain a separate property; the solver checks
+// initialization, preservation, and the postcondition conditional on loop exit.
 // n = |a| and m = |b| are immutable and nonnegative. No reachability premise is
 // used in preservation: every state satisfying the invariant and guard counts.
 export const SOLUTION_EXPLANATIONS = {

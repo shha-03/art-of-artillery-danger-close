@@ -3,8 +3,9 @@ import { SOLUTION_EXPLANATIONS } from './solution-explanations.js';
 
 // a and b are arbitrary external integers. n and m are their immutable
 // magnitudes; the three battle inputs select examples, never the input contract.
-// Mathematical justification (unbounded integers; distinct from the finite
-// checker, which tests 81 raw inputs and 4,225 states for each input):
+// Mathematical justification over unbounded integers. Z3 checks initialization,
+// preservation, and exit implications; the termination arguments below are
+// separate from those partial-correctness obligations:
 // g01-g04: one decrease in x cancels the corresponding weighted increase in y.
 //   The nonnegative countdown x proves termination, including zero weights.
 // g05: x+y is constant and y never exceeds capacity m. Each active step lowers
@@ -37,8 +38,9 @@ import { SOLUTION_EXPLANATIONS } from './solution-explanations.js';
 //   Width one forces x>=0 (otherwise x^2>=y^2), proving floor(sqrt(n)).
 // Localized initiation, preservation, exit proofs and removed-condition notes
 // are in solution-explanations.js. Invariants need not characterize reachability.
-// These arguments assume mathematical integers. JavaScript and the interactive
-// checker use exact safe integers within their explicitly reported test windows.
+// Z3 uses mathematical integers without input or state bounds. Authored
+// JavaScript functions provide finite display traces and regression oracles;
+// their safe-integer limits do not restrict the symbolic proof obligations.
 const point = ({ x, y }) => ({ x, y });
 const positionKey = ({ x, y }) => `${x},${y}`;
 const mission = ({ start, initialization, ...definition }) => {

@@ -1,0 +1,2 @@
+# Preserve the official solver assets byte-for-byte, including manifest hashes.
+dist/vendor/* -text

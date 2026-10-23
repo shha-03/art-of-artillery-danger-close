@@ -45,13 +45,15 @@ export async function runFiringSequence({ iterator, mode, onEvent, signal, wait 
     if (signal?.aborted) return cancelled();
     emit({ type: 'checking', stage });
     if (!await pause(timing.check)) return cancelled();
-    const step = iterator.next();
+    const step = await iterator.next();
+    if (signal?.aborted) return cancelled();
     if (step.done) return finishEarly(step.value);
     if (step.value.stage !== stage) throw new Error('Verification stages arrived out of order.');
     emit({ type: 'checked', stage, analysis: step.value.analysis });
     if (!stagePassed(step.value.analysis, stage)
       && !(stage === 'goal' && exitAllowsFire(step.value.analysis))) {
-      const stopped = iterator.next();
+      const stopped = await iterator.next();
+      if (signal?.aborted) return cancelled();
       if (!stopped.done) throw new Error('Verifier continued after a failed stage.');
       return finishEarly(stopped.value);
     }
@@ -65,7 +67,8 @@ export async function runFiringSequence({ iterator, mode, onEvent, signal, wait 
       if (!await pause(timing.close)) return cancelled();
     }
   }
-  const final = iterator.next();
+  const final = await iterator.next();
+  if (signal?.aborted) return cancelled();
   if (!final.done) throw new Error('Verifier did not finish after the exit check.');
   const result = final.value;
   if (result?.error || result?.dud || !result?.shots?.length) return finishEarly(result);

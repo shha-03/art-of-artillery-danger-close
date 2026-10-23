@@ -1,8 +1,8 @@
 import { evaluate, parseExpression } from './engine.js';
 
-// The input contract remains (a,b) in Z². Domains below are finite checker
-// windows, not preconditions or clamps on the algorithms. x/y are map axes;
-// z identifies a distinct layer, including when two units share x/y.
+// The input contract remains (a,b) in Z². Domains below support displayed
+// layers and finite regression tests; they never constrain Z3's integer proofs.
+// x/y are map axes, and z identifies a distinct layer even at equal x/y.
 const point = ({ x, y, z }) => ({ x, y, z });
 const key = ({ x, y, z }) => `${x},${y},${z}`;
 const mission = ({ start, initialization, ...definition }) => {
@@ -54,7 +54,7 @@ export const SPATIAL_LEVELS = [
       initial: 'x=0, y=m, z=1이므로 y=x²+m, z=2x+1, x≤n이 모두 성립한다.',
       preservation: 'y′=y+z=x²+m+2x+1=(x+1)²+m이고 z′=z+2=2(x+1)+1이다. 정수 x<n에서 x′=x+1≤n이다.',
       postcondition: '종료 시 x≥n이고 불변식은 x≤n이므로 x=n이다. 두 등식에 대입하면 y=n²+m, z=2n+1을 얻는다.',
-      note: '모든 정수 입력의 크기 n,m≥0에 대한 관계이다. 실제 실행은 x가 0부터 n까지 증가하므로 종료한다. 유한 검사창은 이 일반 논증을 대신하지 않는다.',
+      note: '모든 정수 입력의 크기 n,m≥0에 대한 관계이다. Z3는 정수 범위 제한 없이 초기 성립·유지·종료 시 보장을 검증한다. 종료성은 별도 성질이며, 실제 실행에서 x가 0부터 n까지 증가한다는 점으로 설명된다.',
     },
     en: {
       name: 'Load the Next Odd Difference', concept: 'Relate the current square and its next difference',
@@ -64,7 +64,7 @@ export const SPATIAL_LEVELS = [
         initial: 'Initially x=0, y=m, z=1, so y=x²+m, z=2x+1, and x≤n all hold.',
         preservation: 'y′=y+z=x²+m+2x+1=(x+1)²+m and z′=z+2=2(x+1)+1. Integer x<n implies x′=x+1≤n.',
         postcondition: 'Exit gives x≥n; the invariant gives x≤n. Thus x=n, and substitution yields y=n²+m and z=2n+1.',
-        note: 'The argument applies to all integer inputs through n,m≥0. Actual execution increments x from 0 to n and terminates. Finite checking is separate from this general argument.',
+        note: 'The argument applies to all integer inputs through n,m≥0. Z3 verifies initialization, preservation, and the guarantee on exit without integer bounds. Termination is separate: actual execution increments x from 0 to n.',
       },
     },
   }),
@@ -151,7 +151,7 @@ export const SPATIAL_LEVELS = [
       initial: 'x=n, y=m, z=0이므로 x≥0이고 xy+z=nm이다.',
       preservation: '짝수 x=2k이면 x′y′+z′=k·2y+z=xy+z이다. 홀수 x=2k+1이면 z′=z+y이므로 k·2y+z+y=xy+z이다. 두 경우 모두 x′≥0이다.',
       postcondition: '종료 조건 x≤0과 불변식 x≥0에서 x=0이다. 남은 곱 xy가 0이므로 z=nm을 얻는다. y의 최종값은 제한하지 않아 정답에도 중립 후보가 남을 수 있다.',
-      note: '이 관계는 가상의 음수 y,z에서도 보존된다. 실제 경로에서는 모든 변수가 비음수이고 양수 x의 정수 반감이 엄격히 감소하므로 종료한다. 검사창의 비음수 상태에서 xy+z≤16이고 x>0이면 y≤16이므로 다음 y≤32이다.',
+      note: '이 관계는 가상의 음수 y,z에서도 보존된다. 실제 경로에서는 모든 변수가 비음수이고 양수 x의 정수 반감이 엄격히 감소하므로 종료한다. 이 종료성 논증은 Z3가 확인하는 초기 성립·유지·종료 시 보장과 별개이다.',
     },
     en: {
       name: 'Halve and Double Multiplication', concept: 'Remaining product plus accumulated product',
@@ -161,7 +161,7 @@ export const SPATIAL_LEVELS = [
         initial: 'Initially x=n, y=m, z=0, so x≥0 and xy+z=nm.',
         preservation: 'For even x=2k, x′y′+z′=k·2y+z=xy+z. For odd x=2k+1, z′=z+y gives k·2y+z+y=xy+z. Both branches keep x′≥0.',
         postcondition: 'Exit gives x≤0, and the invariant gives x≥0, so x=0. The remaining product vanishes and z=nm. Final y is unrestricted, so a correct invariant can still leave neutral candidates.',
-        note: 'The relation also holds at hypothetical negative y,z. Actual variables stay nonnegative, and halving positive integer x strictly decreases it, proving termination. In the nonnegative test window, xy+z≤16 with x>0 implies y≤16, so the next y is at most 32.',
+        note: 'The relation also holds at hypothetical negative y,z. Actual variables stay nonnegative, and halving positive integer x strictly decreases it, proving termination. This termination argument is separate from the initialization, preservation, and exit obligations checked by Z3.',
       },
     },
   }),
