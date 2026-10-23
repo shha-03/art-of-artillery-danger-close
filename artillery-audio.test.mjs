@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createArtilleryAudio } from './dist/artillery-audio.js';
 
 class Parameter {
@@ -39,7 +40,7 @@ class Source extends Node {
     this.onended = null;
     context.sources.push(this);
   }
-  start(time, offset) { this.starts.push({ time, offset }); }
+  start(time, offset, duration) { this.starts.push({ time, offset, duration }); }
   stop(time) { this.stops.push(time); }
   setPeriodicWave(wave) { this.wave = wave; }
   finish() { this.onended?.(); }
@@ -55,6 +56,7 @@ class AudioContext {
     this.buffers = [];
     this.resumeCalls = 0;
     this.closeCalls = 0;
+    this.decodeCalls = 0;
     this.destination = new Node(this, 'destination');
     if (!stereo) this.createStereoPanner = undefined;
   }
@@ -80,6 +82,11 @@ class AudioContext {
     this.buffers.push(buffer);
     return buffer;
   }
+  decodeAudioData(bytes) {
+    this.decodeCalls++;
+    const duration = new Float64Array(bytes)[0];
+    return Promise.resolve(this.createBuffer(2, Math.round(duration * this.sampleRate), this.sampleRate));
+  }
   resume() { this.resumeCalls++; this.state = 'running'; return Promise.resolve(); }
   close() { this.closeCalls++; this.state = 'closed'; return Promise.resolve(); }
 }
@@ -89,11 +96,22 @@ function seededRandom() {
   return () => { value = (Math.imul(value, 1664525) + 1013904223) >>> 0; return value / 4294967296; };
 }
 
-async function ready(options = {}) {
+const clipDurations = { 'breech-open.wav': 0.44, 'shell-load.wav': 0.58, 'breech-close.wav': 0.38 };
+function fixtureFetch(calls = []) {
+  return async (url, options) => {
+    const filename = new URL(url).pathname.split('/').at(-1);
+    assert.ok(Object.hasOwn(clipDurations, filename));
+    calls.push({ url, signal: options.signal });
+    return { ok: true, arrayBuffer: async () => new Float64Array([clipDurations[filename]]).buffer };
+  };
+}
+
+async function ready({ recordings = false, ...options } = {}) {
   const context = new AudioContext(options);
-  const audio = createArtilleryAudio({ contextFactory: () => context, random: seededRandom() });
+  const audio = createArtilleryAudio({ contextFactory: () => context, random: seededRandom(), fetcher: fixtureFetch() });
   audio.setEnabled(true);
   assert.equal(await audio.unlock(), true);
+  if (recordings) assert.equal(await audio.prepare(), true);
   return { audio, context };
 }
 
@@ -167,7 +185,7 @@ test('muted, unavailable, rejected, and disposed audio paths fail silently witho
 
 test('every cue schedules finite layered sources, envelopes, and explicit source end times', async () => {
   const { audio, context } = await ready();
-  for (const cue of ['breechOpen', 'shellLoad', 'breechClose', 'loadClose', 'fire', 'impact', 'salvoImpact', 'radio', 'bugle', 'failure']) {
+  for (const cue of ['fire', 'impact', 'salvoImpact', 'radio', 'bugle', 'failure']) {
     const first = context.sources.length;
     assert.equal(audio.play(cue), true, cue);
     const sources = context.sources.slice(first);
@@ -196,96 +214,67 @@ test('every cue schedules finite layered sources, envelopes, and explicit source
   audio.dispose();
 });
 
-test('mechanical cues use brief noise resonances and end inside their visual stage without reverberant tails', async () => {
-  const { audio, context } = await ready();
-  for (const [cue, limit] of [['breechOpen', 0.48], ['shellLoad', 0.52], ['breechClose', 0.4]]) {
+test('recorded mechanical cues play at original speed through the common master with no filter or reverb', async () => {
+  const { audio, context } = await ready({ recordings: true });
+  for (const [cue, duration, stageDuration] of [['breechOpen', .44, .48], ['shellLoad', .58, .62], ['breechClose', .38, .44]]) {
     const first = context.sources.length;
     assert.equal(audio.play(cue), true);
     const sources = context.sources.slice(first);
-    assert.ok(Math.max(...sources.map(source => source.stops[0])) <= context.currentTime + limit, `${cue}: physical stop deadline`);
-    const reverb = context.nodes.filter(node => node.kind === 'convolver').at(-1);
-    assert.ok(sources.every(source => !reaches(source, reverb)), `${cue}: no reverb outlives the mechanical stage`);
-    const resonances = sources.filter(source => filterFor(source)?.Q.events[0].value >= 3);
-    assert.ok(resonances.length >= 3, `${cue}: multiple metal contact modes`);
-    const frequencies = [...new Set(resonances.map(source => filterFor(source).frequency.events[0].value))];
-    assert.ok(frequencies.length >= 3);
-    assert.ok(frequencies.slice(1).every(value => !Number.isInteger(value / frequencies[0])), 'modes are not a harmonic note stack');
-    assert.ok(resonances.every(source => {
-      const gain = filterFor(source).connections.find(node => node.kind === 'gain');
-      const decayEnd = gain.gain.events.find(event => event.method === 'exponential').time;
-      return decayEnd - source.starts[0].time < 0.09
-        && source.stops[0] - source.starts[0].time < 0.115;
-    }), 'metal modes decay within 90 ms, followed only by the short source cleanup margin');
+    assert.equal(sources.length, 1, 'one original recording, without synthesis layers');
+    const source = sources[0];
+    assert.equal(source.loop, false);
+    assert.equal(source.playbackRate.events[0].value, 1);
+    assert.equal(source.starts[0].offset, 0);
+    assert.equal(source.starts[0].duration, duration);
+    assert.equal(source.buffer.numberOfChannels, 2);
+    assert.equal(source.connections.length, 1);
+    assert.equal(source.connections[0].kind, 'compressor');
+    assert.ok(Math.abs(source.stops[0] - source.starts[0].time - duration) < 1e-9);
+    assert.ok(source.stops[0] <= context.currentTime + stageDuration);
+    assert.equal(context.nodes.some(node => ['filter', 'convolver', 'panner'].includes(node.kind)), false);
     audio.stopAll();
   }
   audio.dispose();
 });
 
-test('shell seating, breech closure, and final locking have distinct animation-aligned transients', async () => {
-  const { audio, context } = await ready();
-  audio.play('shellLoad');
-  const loading = [...context.sources];
-  const seating = loading.reduce((strongest, source) => peakFor(source) > peakFor(strongest) ? source : strongest);
-  const seatTime = seating.starts[0].time - context.currentTime;
-  assert.ok(seatTime >= 0.28 && seatTime <= 0.32, 'main seating impact near 300 ms');
-  assert.ok(loading.some(source => source.starts[0].time < context.currentTime + 0.05 && source.stops[0] > context.currentTime + 0.20), 'a longer insertion scrape precedes the seat');
-  audio.stopAll();
-  const first = context.sources.length;
-  audio.play('breechClose');
-  const closing = context.sources.slice(first);
-  const closure = closing.reduce((strongest, source) => peakFor(source) > peakFor(strongest) ? source : strongest);
-  const closeTime = closure.starts[0].time - context.currentTime;
-  assert.ok(closeTime >= 0.22 && closeTime <= 0.25, 'heavy closure matches the sliding block');
-  const locking = closing.find(source => source.starts[0].time >= context.currentTime + 0.31
-    && source.starts[0].time <= context.currentTime + 0.35
-    && source.stops[0] - source.starts[0].time < 0.05
-    && filterFor(source).frequency.events[0].value >= 1500
-    && peakFor(source) >= 0.1);
-  assert.ok(locking, 'the later locking latch is its own transient');
-  assert.ok(locking.starts[0].time - closure.starts[0].time > 0.07, 'closure and lock are not one simultaneous click');
-  audio.stopAll();
-  const legacyFirst = context.sources.length;
-  assert.equal(audio.play('loadClose'), true, 'older integrations keep a combined cue');
-  const combined = context.sources.slice(legacyFirst);
-  assert.equal(combined.length, loading.length + closing.length);
-  assert.ok(combined.slice(loading.length).every(source => source.starts[0].time > Math.max(...combined.slice(0, loading.length).map(source => source.stops[0]))), 'combined cue finishes loading before closure begins');
+test('boot preload is context-free and concurrent preparation fetches and decodes each recording once', async () => {
+  const context = new AudioContext(), requests = [];
+  let constructions = 0;
+  const audio = createArtilleryAudio({ contextFactory: () => { constructions++; return context; }, fetcher: fixtureFetch(requests) });
+  assert.deepEqual(await Promise.all([audio.preload(), audio.preload()]), [true, true]);
+  assert.equal(constructions, 0, 'preloading bytes does not violate autoplay policies');
+  assert.equal(context.decodeCalls, 0);
+  assert.equal(requests.length, 3);
+  assert.ok(requests.every(({ url }) => url.pathname.includes('/audio/')));
+  audio.setEnabled(true);
+  const preparing = audio.prepare();
+  assert.equal(constructions, 1, 'the context is created synchronously in the gesture');
+  assert.deepEqual(await Promise.all([preparing, audio.prepare()]), [true, true]);
+  assert.equal(requests.length, 3);
+  assert.equal(context.decodeCalls, 3);
+  assert.equal(context.sources.length, 0, 'preparation never starts playback');
+  assert.equal(audio.play('shellLoad'), true);
+  const buffer = context.sources.at(-1).buffer;
+  audio.setEnabled(false);
+  audio.setEnabled(true);
+  assert.equal(await audio.prepare(), true);
+  assert.equal(audio.play('shellLoad'), true);
+  assert.equal(context.sources.at(-1).buffer, buffer);
+  assert.equal(context.decodeCalls, 3, 'decoded recordings survive mute cycles');
   audio.dispose();
 });
 
-test('mechanical travel uses cached finite irregular friction, with distinct randomized playback offsets', async () => {
-  const { audio, context } = await ready();
-  assert.equal(audio.play('shellLoad'), true);
-  const travel = context.sources.filter(source => source.starts[0].time < context.currentTime + 0.03
-    && source.stops[0] - source.starts[0].time > 0.2);
-  assert.equal(travel.length, 2, 'two friction bands accompany the insertion');
-  const grit = travel[0].buffer;
-  assert.equal(travel[1].buffer, grit, 'friction bands share the cached procedural texture');
-  assert.notEqual(travel[0].starts[0].offset, travel[1].starts[0].offset, 'bands do not replay the same grain in lockstep');
-  assert.equal(grit.numberOfChannels, 1);
-  assert.equal(grit.duration, 2);
-  const samples = grit.getChannelData(0);
-  assert.ok(samples.every(Number.isFinite));
-  assert.ok(samples.some(sample => sample > 0.1) && samples.some(sample => sample < -0.1));
-  assert.ok(samples.every(sample => Math.abs(sample) < 1), 'procedural friction does not contain clipped samples');
-  const blockSize = Math.round(context.sampleRate * 0.005);
-  const energy = [];
-  for (let offset = 0; offset + blockSize <= samples.length; offset += blockSize) {
-    let sum = 0;
-    for (let i = offset; i < offset + blockSize; i++) sum += samples[i] ** 2;
-    energy.push(Math.sqrt(sum / blockSize));
-  }
-  assert.ok(Math.max(...energy) > Math.min(...energy) * 3, 'sticking gaps and slipping contacts have different energy');
-  assert.ok(new Set(energy.map(value => value.toFixed(3))).size > 25, 'the friction envelope is varied instead of a constant pulse train');
-  const highBlocks = energy.flatMap((value, i) => value > 0.15 ? [i] : []);
-  const separations = highBlocks.slice(1).map((value, i) => value - highBlocks[i]);
-  assert.ok(new Set(separations).size >= 3, 'strong contacts have irregular spacing');
-  const bufferCount = context.buffers.length;
+test('legacy loadClose plays the two recordings sequentially and stopAll cancels its future close', async () => {
+  const { audio, context } = await ready({ recordings: true });
+  assert.equal(audio.play('loadClose'), true);
+  assert.equal(context.sources.length, 2);
+  const [loading, closing] = context.sources;
+  assert.ok(closing.starts[0].time > loading.stops[0]);
+  assert.ok(Math.abs(closing.starts[0].time - loading.stops[0] - .02) < 1e-9);
+  context.currentTime += .05;
   audio.setEnabled(false);
-  audio.setEnabled(true);
-  const first = context.sources.length;
-  assert.equal(audio.play('breechOpen'), true);
-  assert.equal(context.buffers.length, bufferCount, 'mute/unmute and another mechanical cue reuse the friction buffer');
-  assert.ok(context.sources.slice(first).some(source => source.buffer === grit));
+  assert.ok(context.sources.every(source => source.stops.at(-1) === context.currentTime && source.disconnected));
+  assert.equal(audio.play('breechOpen'), false);
   audio.dispose();
 });
 
@@ -351,7 +340,7 @@ test('OFF immediately cancels future notes and current voices, disconnects rever
 });
 
 test('stopAll cancels scheduled audio without changing the enabled preference', async () => {
-  const { audio, context } = await ready();
+  const { audio, context } = await ready({ recordings: true });
   audio.play('loadClose');
   audio.stopAll();
   assert.ok(context.sources.every(source => source.stops.at(-1) === context.currentTime));
@@ -420,4 +409,215 @@ test('dispose during a pending resume cannot resurrect audio or leak its context
   assert.equal(context.closeCalls, 1);
   assert.equal(audio.play('fire'), false);
   assert.equal(context.sources.length, 0);
+});
+
+test('missing or undecodable recordings stay silent without suppressing unrelated effects', async () => {
+  for (const failure of ['http', 'network', 'decode', 'unsupported']) {
+    const context = new AudioContext();
+    const normalFetch = fixtureFetch();
+    const fetcher = (url, options) => {
+      if (String(url).endsWith('breech-close.wav')) {
+        if (failure === 'http') return Promise.resolve({ ok: false });
+        if (failure === 'network') return Promise.reject(new Error('offline'));
+      }
+      return normalFetch(url, options);
+    };
+    if (failure === 'decode') {
+      const decode = context.decodeAudioData.bind(context);
+      context.decodeAudioData = bytes => new Float64Array(bytes)[0] === .38
+        ? Promise.reject(new Error('invalid WAV')) : decode(bytes);
+    }
+    if (failure === 'unsupported') context.decodeAudioData = undefined;
+    const audio = createArtilleryAudio({ contextFactory: () => context, fetcher });
+    audio.setEnabled(true);
+    assert.equal(audio.play('breechClose'), false, 'not-ready recordings do not synthesize a substitute');
+    assert.equal(await audio.prepare(), false);
+    assert.equal(audio.play('breechClose'), false, failure);
+    assert.equal(audio.play('loadClose'), false, 'a partial combined cue does not schedule half a mechanism');
+    assert.equal(context.sources.length, 0);
+    if (failure !== 'unsupported') assert.equal(audio.play('breechOpen'), true, 'one bad file does not block the other recording');
+    assert.equal(audio.play('fire'), true, 'procedural combat effects remain available');
+    audio.dispose();
+  }
+});
+
+test('fetch timeouts abort requests and let preparation settle without a recording fallback', async () => {
+  const context = new AudioContext(), signals = [];
+  const audio = createArtilleryAudio({ contextFactory: () => context, loadTimeoutMs: 15,
+    fetcher: (_url, { signal }) => { signals.push(signal); return new Promise(() => {}); } });
+  audio.setEnabled(true);
+  assert.equal(await audio.prepare({ timeoutMs: 80 }), false);
+  assert.equal(signals.length, 3);
+  assert.ok(signals.every(signal => signal.aborted));
+  assert.equal(context.decodeCalls, 0);
+  assert.equal(audio.play('shellLoad'), false);
+  assert.equal(audio.play('impact'), true);
+  audio.dispose();
+});
+
+test('an aborted caller stops waiting without poisoning shared boot downloads', async () => {
+  const context = new AudioContext(), completions = [];
+  const normalFetch = fixtureFetch();
+  const audio = createArtilleryAudio({ contextFactory: () => context,
+    fetcher: (url, options) => new Promise(resolve => completions.push(async () => resolve(await normalFetch(url, options)))) });
+  const preload = audio.preload();
+  audio.setEnabled(true);
+  const controller = new AbortController();
+  const preparing = audio.prepare({ signal: controller.signal });
+  controller.abort();
+  assert.equal(await preparing, false);
+  assert.equal(context.sources.length, 0);
+  for (const complete of completions) await complete();
+  assert.equal(await preload, true);
+  assert.equal(await audio.prepare(), true, 'later explicit preparation can use the shared files');
+  assert.equal(context.sources.length, 0, 'late readiness never automatically plays a cue');
+  audio.dispose();
+});
+
+test('mute and disposal prevent pending decoding from reviving playback', async () => {
+  for (const dispose of [false, true]) {
+    const context = new AudioContext(), finishDecode = [];
+    context.decodeAudioData = bytes => new Promise(resolve => finishDecode.push(() =>
+      resolve(context.createBuffer(2, new Float64Array(bytes)[0] * context.sampleRate, context.sampleRate))));
+    const audio = createArtilleryAudio({ contextFactory: () => context, fetcher: fixtureFetch() });
+    audio.setEnabled(true);
+    const preparing = audio.prepare();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(finishDecode.length, 3);
+    if (dispose) audio.dispose(); else audio.setEnabled(false);
+    for (const finish of finishDecode) finish();
+    assert.equal(await preparing, false);
+    assert.equal(context.sources.length, 0);
+    assert.equal(audio.play('shellLoad'), false);
+    if (dispose) {
+      assert.equal(await audio.preload(), false);
+      assert.equal(await audio.prepare(), false);
+    } else {
+      audio.setEnabled(true);
+      assert.equal(await audio.prepare(), true);
+      assert.equal(audio.play('shellLoad'), true, 'only a new explicit playback starts the cached recording');
+      audio.dispose();
+    }
+  }
+});
+
+test('late decode completion after its timeout is ignored', async () => {
+  const context = new AudioContext(), completions = [];
+  context.decodeAudioData = bytes => new Promise(resolve => completions.push(() =>
+    resolve(context.createBuffer(2, new Float64Array(bytes)[0] * context.sampleRate, context.sampleRate))));
+  const audio = createArtilleryAudio({ contextFactory: () => context, fetcher: fixtureFetch(), loadTimeoutMs: 15 });
+  audio.setEnabled(true);
+  assert.equal(await audio.prepare({ timeoutMs: 80 }), false);
+  assert.equal(completions.length, 3);
+  for (const complete of completions) complete();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(audio.play('breechOpen'), false);
+  assert.equal(context.sources.length, 0);
+  audio.dispose();
+});
+
+test('a replacement context ignores stale decode completions and reuses the fetched bytes', async () => {
+  const oldContext = new AudioContext(), newContext = new AudioContext(), completions = [], requests = [];
+  oldContext.decodeAudioData = bytes => new Promise(resolve => completions.push(() =>
+    resolve(oldContext.createBuffer(2, new Float64Array(bytes)[0] * oldContext.sampleRate, oldContext.sampleRate))));
+  let constructions = 0;
+  const audio = createArtilleryAudio({ contextFactory: () => constructions++ ? newContext : oldContext, fetcher: fixtureFetch(requests) });
+  audio.setEnabled(true);
+  const oldPreparation = audio.prepare();
+  await new Promise(resolve => setImmediate(resolve));
+  oldContext.state = 'closed';
+  assert.equal(await audio.prepare(), true);
+  assert.equal(newContext.decodeCalls, 3);
+  for (const complete of completions) complete();
+  assert.equal(await oldPreparation, false);
+  assert.equal(requests.length, 3, 'context replacement reuses original bytes');
+  assert.equal(audio.play('breechOpen'), true);
+  assert.equal(oldContext.sources.length, 0);
+  assert.ok(newContext.buffers.includes(newContext.sources.at(-1).buffer));
+  audio.dispose();
+});
+
+test('oversized recordings are cut to the mechanical stage limit without playback-rate changes', async () => {
+  const context = new AudioContext();
+  context.decodeAudioData = () => Promise.resolve(context.createBuffer(2, context.sampleRate * 2, context.sampleRate));
+  const audio = createArtilleryAudio({ contextFactory: () => context, fetcher: fixtureFetch() });
+  audio.setEnabled(true);
+  assert.equal(await audio.prepare(), true);
+  for (const [cue, limit] of [['breechOpen', .48], ['shellLoad', .62], ['breechClose', .44]]) {
+    assert.equal(audio.play(cue), true);
+    const source = context.sources.at(-1);
+    assert.ok(source.stops[0] < context.currentTime + limit);
+    assert.equal(source.playbackRate.events[0].value, 1);
+  }
+  audio.dispose();
+});
+
+test('a later explicit preparation retries failed fetches and decodes while retaining successful caches', async () => {
+  const context = new AudioContext(), fetched = new Map();
+  const normalFetch = fixtureFetch();
+  let decodeFailure = true;
+  const decode = context.decodeAudioData.bind(context);
+  context.decodeAudioData = bytes => {
+    if (decodeFailure) return Promise.reject(new Error('temporary decoder failure'));
+    return decode(bytes);
+  };
+  const audio = createArtilleryAudio({ contextFactory: () => context, fetcher: (url, options) => {
+    const key = String(url), count = (fetched.get(key) || 0) + 1;
+    fetched.set(key, count);
+    return count === 1 ? Promise.resolve({ ok: false }) : normalFetch(url, options);
+  } });
+  assert.equal(await audio.preload(), false);
+  audio.setEnabled(true);
+  assert.equal(await audio.prepare(), false, 'second download succeeds but first decode fails');
+  decodeFailure = false;
+  assert.equal(await audio.prepare(), true, 'the next user action can recover without reloading the page');
+  assert.deepEqual([...fetched.values()], [2, 2, 2], 'successful downloads are not fetched again');
+  assert.equal(context.decodeCalls, 3);
+  assert.equal(audio.play('shellLoad'), true);
+  audio.dispose();
+});
+
+test('a closed context pending resume cannot prevent or clear a replacement context resume', async () => {
+  const oldContext = new AudioContext({ suspended: true }), newContext = new AudioContext({ suspended: true });
+  let finishOld, finishNew, constructions = 0;
+  oldContext.resume = () => new Promise(resolve => { finishOld = resolve; });
+  newContext.resume = () => new Promise(resolve => { finishNew = () => { newContext.state = 'running'; resolve(); }; });
+  const audio = createArtilleryAudio({ contextFactory: () => constructions++ ? newContext : oldContext });
+  audio.setEnabled(true);
+  const oldResume = audio.unlock();
+  oldContext.state = 'closed';
+  const newResume = audio.unlock();
+  assert.notEqual(oldResume, newResume);
+  assert.equal(typeof finishNew, 'function', 'replacement context gets its own resume call');
+  finishOld();
+  assert.equal(await oldResume, false);
+  assert.equal(audio.unlock(), newResume, 'stale completion did not clear the current pending resume');
+  finishNew();
+  assert.equal(await newResume, true);
+  audio.dispose();
+});
+
+test('shipped recordings are valid 48 kHz stereo PCM16 WAVs within their animation stages', () => {
+  for (const [filename, expectedDuration] of Object.entries(clipDurations)) {
+    const bytes = readFileSync(new URL(`./dist/audio/${filename}`, import.meta.url));
+    assert.equal(bytes.toString('ascii', 0, 4), 'RIFF');
+    assert.equal(bytes.toString('ascii', 8, 12), 'WAVE');
+    let format, data;
+    for (let position = 12; position + 8 <= bytes.length;) {
+      const kind = bytes.toString('ascii', position, position + 4), length = bytes.readUInt32LE(position + 4);
+      assert.ok(position + 8 + length <= bytes.length, 'chunk fits the file');
+      if (kind === 'fmt ') format = bytes.subarray(position + 8, position + 8 + length);
+      if (kind === 'data') data = bytes.subarray(position + 8, position + 8 + length);
+      position += 8 + length + (length % 2);
+    }
+    assert.ok(format && data);
+    assert.equal(format.readUInt16LE(0), 1, 'uncompressed PCM');
+    assert.equal(format.readUInt16LE(2), 2, 'stereo');
+    assert.equal(format.readUInt32LE(4), 48000);
+    assert.equal(format.readUInt16LE(14), 16);
+    assert.equal(data.length / (48000 * 2 * 2), expectedDuration);
+    let peak = 0;
+    for (let index = 0; index < data.length; index += 2) peak = Math.max(peak, Math.abs(data.readInt16LE(index)) / 32768);
+    assert.ok(peak > 0.01 && peak < 1, 'audible recording has unclipped headroom');
+  }
 });

@@ -1,18 +1,114 @@
-// Original procedural effects: no recordings, external assets, or quoted music.
+// Mechanical cues use local recordings; the remaining effects are synthesized.
 // The optional dependencies make scheduling/lifecycle tests independent of a browser.
 const MAX_SOURCES = 48;
 const MAX_SALVO_BLASTS = 6;
 const OUTPUT_LEVEL = 0.62;
 const FLOOR = 0.0001;
+const RECORDINGS = {
+  breechOpen: { url: new URL('./audio/breech-open.wav', import.meta.url), duration: 0.45 },
+  shellLoad: { url: new URL('./audio/shell-load.wav', import.meta.url), duration: 0.58 },
+  breechClose: { url: new URL('./audio/breech-close.wav', import.meta.url), duration: 0.40 },
+};
 
-export function createArtilleryAudio({ contextFactory, random = Math.random } = {}) {
+export function createArtilleryAudio({ contextFactory, random = Math.random,
+  fetcher = globalThis.fetch?.bind(globalThis), loadTimeoutMs = 4000 } = {}) {
   let context = null, compressor = null, output = null, buses = null;
   let enabled = false, disposed = false, resumePending = null;
   let impulse = null, brassWave = null;
   const buffers = new Map();
   const voices = new Set();
+  const recordingBytes = new Map(), recordings = new Map(), decoding = new Map();
+  const requests = new Set();
+  const lifetimeAbort = new AbortController();
+  let contextVersion = 0;
+  const loadDeadline = Number.isFinite(loadTimeoutMs) && loadTimeoutMs > 0 ? loadTimeoutMs : 4000;
   const rand = () => Math.max(0, Math.min(1, Number(random()) || 0));
   const disconnect = node => { try { node?.disconnect(); } catch {} };
+
+  function bounded(promise, timeoutMs = loadDeadline, signal) {
+    return new Promise(resolve => {
+      let settled = false, timer;
+      const finish = value => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', cancel);
+        lifetimeAbort.signal.removeEventListener('abort', cancel);
+        resolve(value);
+      };
+      const cancel = () => finish(false);
+      // Attach rejection handling even if cancellation already occurred.
+      Promise.resolve(promise).then(finish, cancel);
+      if (disposed || signal?.aborted) { cancel(); return; }
+      signal?.addEventListener('abort', cancel, { once: true });
+      lifetimeAbort.signal.addEventListener('abort', cancel, { once: true });
+      timer = setTimeout(cancel, Number.isFinite(timeoutMs) && timeoutMs >= 0 ? timeoutMs : loadDeadline);
+    });
+  }
+
+  function fetchRecording(cue) {
+    if (recordingBytes.has(cue)) return recordingBytes.get(cue);
+    if (disposed || typeof fetcher !== 'function') return Promise.resolve(false);
+    const controller = new AbortController();
+    requests.add(controller);
+    const request = Promise.resolve().then(() => fetcher(RECORDINGS[cue].url, { signal: controller.signal }))
+      .then(response => response?.ok ? response.arrayBuffer() : false);
+    const pending = bounded(request).then(bytes => {
+      if (!bytes || disposed) { controller.abort(); return false; }
+      return bytes;
+    }).finally(() => requests.delete(controller)).then(bytes => {
+      // A later explicit preparation can retry a transient offline/timeout
+      // failure. Do not invalidate a newer request or retry automatically.
+      if (!bytes && recordingBytes.get(cue) === pending) recordingBytes.delete(cue);
+      return bytes;
+    });
+    recordingBytes.set(cue, pending);
+    return pending;
+  }
+
+  function preload({ signal, timeoutMs = loadDeadline } = {}) {
+    if (disposed || signal?.aborted) return Promise.resolve(false);
+    // Boot may fetch bytes without creating or resuming an AudioContext.
+    return bounded(Promise.all(Object.keys(RECORDINGS).map(fetchRecording))
+      .then(results => results.every(Boolean)), timeoutMs, signal);
+  }
+
+  function decodeRecording(cue, target, version) {
+    if (recordings.has(cue)) return Promise.resolve(recordings.get(cue));
+    if (decoding.has(cue)) return decoding.get(cue);
+    const pending = (async () => {
+      const bytes = await fetchRecording(cue);
+      if (!bytes || disposed || context !== target || contextVersion !== version
+        || typeof target.decodeAudioData !== 'function') return false;
+      const decoded = await bounded(new Promise((resolve, reject) => {
+        // Copy because decodeAudioData may detach its input. Keep the original
+        // bytes cached if an interrupted/closed context has to be recreated.
+        const promise = target.decodeAudioData(bytes.slice(0), resolve, reject);
+        if (promise?.then) promise.then(resolve, reject);
+      }));
+      if (!decoded || disposed || context !== target || contextVersion !== version
+        || !Number.isFinite(decoded.duration) || decoded.duration <= 0) return false;
+      recordings.set(cue, decoded);
+      return decoded;
+    })().catch(() => false).then(decoded => {
+      if (!decoded && decoding.get(cue) === pending) decoding.delete(cue);
+      return decoded;
+    });
+    decoding.set(cue, pending);
+    return pending;
+  }
+
+  function prepare({ signal, timeoutMs = loadDeadline } = {}) {
+    if (disposed || !enabled || signal?.aborted) return Promise.resolve(false);
+    // unlock() must run before the first await to retain the click gesture.
+    const unlocked = unlock();
+    const target = context, version = contextVersion;
+    const ready = Promise.all([unlocked, ...Object.keys(RECORDINGS).map(cue =>
+      target ? decodeRecording(cue, target, version) : Promise.resolve(false))])
+      .then(results => results.every(Boolean) && !disposed && enabled
+        && context === target && contextVersion === version);
+    return bounded(ready, timeoutMs, signal);
+  }
 
   function silenceOutput() {
     if (!output || !context) return;
@@ -48,6 +144,8 @@ export function createArtilleryAudio({ contextFactory, random = Math.random } = 
         stopAll();
         disconnect(compressor); disconnect(output);
         buffers.clear(); impulse = null; brassWave = null;
+        recordings.clear(); decoding.clear(); contextVersion++;
+        resumePending = null;
         const Constructor = globalThis.AudioContext || globalThis.webkitAudioContext;
         if (!contextFactory && !Constructor) return Promise.resolve(false);
         // Construction and resume happen synchronously inside the gesture,
@@ -67,11 +165,12 @@ export function createArtilleryAudio({ contextFactory, random = Math.random } = 
       if (resumePending) return resumePending;
       const resumedContext = context;
       const resumed = context.resume();
-      resumePending = Promise.resolve(resumed).then(
+      const pending = Promise.resolve(resumed).then(
         () => !disposed && context === resumedContext && context.state === 'running',
         () => false,
-      ).finally(() => { resumePending = null; });
-      return resumePending;
+      ).finally(() => { if (resumePending === pending) resumePending = null; });
+      resumePending = pending;
+      return pending;
     } catch {
       stopAll();
       return Promise.resolve(false);
@@ -82,24 +181,11 @@ export function createArtilleryAudio({ contextFactory, random = Math.random } = 
     if (buffers.has(kind)) return buffers.get(kind);
     const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * 2), context.sampleRate);
     const data = buffer.getChannelData(0);
-    let brown = 0, grainLeft = 0, grainLength = 1, grainGain = 0, gapLeft = 0;
+    let brown = 0;
     for (let i = 0; i < data.length; i++) {
       const white = rand() * 2 - 1;
       brown = (brown + 0.035 * white) / 1.035;
-      if (kind === 'grit') {
-        // Sticking/slipping contact, with irregular grain lengths and gaps.
-        // A constant tremolo would sound like an electronic motor; these
-        // independent friction bursts have no repeating pitch or pulse rate.
-        if (grainLeft <= 0 && gapLeft <= 0) {
-          grainLength = Math.max(1, Math.round(context.sampleRate * (0.0015 + rand() * 0.004)));
-          grainLeft = grainLength;
-          grainGain = 0.35 + rand() * 0.65;
-          gapLeft = Math.round(context.sampleRate * (0.002 + rand() * 0.011));
-        }
-        const contact = grainLeft > 0 ? grainGain * (grainLeft / grainLength) ** 0.6 : 0;
-        if (grainLeft > 0) grainLeft--; else gapLeft--;
-        data[i] = white * (0.09 + contact * 0.75) + brown * 0.35;
-      } else data[i] = kind === 'brown' ? brown * 3.2 : white;
+      data[i] = kind === 'brown' ? brown * 3.2 : white;
     }
     buffers.set(kind, buffer);
     return buffer;
@@ -203,74 +289,37 @@ export function createArtilleryAudio({ contextFactory, random = Math.random } = 
     at, duration, gain, noise: 'white', filter: { type: 'lowpass', frequency }, ...options,
   });
   const tone = (at, duration, gain, frequency, options = {}) => sourceVoice({ at, duration, gain, frequency, ...options });
-  const metal = (at, weight = 1, pan = 0, length = 1) => {
-    // Short, independently damped, non-harmonic noise resonances. These are
-    // contact sounds rather than pitched oscillator notes or downward sweeps.
-    noise(at, 0.073 * length, 0.20 * weight, 223, { filter: { type: 'bandpass', frequency: 223, q: 4.6 }, pan, wet: 0, attack: 0.001 });
-    noise(at + 0.002, 0.049 * length, 0.13 * weight, 521, { filter: { type: 'bandpass', frequency: 521, q: 6.5 }, pan, wet: 0, attack: 0.001 });
-    noise(at + 0.004, 0.028 * length, 0.075 * weight, 1163, { filter: { type: 'bandpass', frequency: 1163, q: 5.2 }, pan, wet: 0, attack: 0.001 });
-  };
-
-  function steelStrike(at, weight = 1, pan = 0, length = 1) {
-    // Heavy casing, short contact snap, then quickly damped steel modes.
-    // All energy is noise-excited; no sampled recording or pitched bass sweep.
-    noise(at, 0.085 * length, 0.66 * weight, 175, { noise: 'brown', pan, wet: 0, attack: 0.001 });
-    noise(at + 0.001, 0.058 * length, 0.32 * weight, 285, { filter: { type: 'bandpass', frequency: 285, q: 0.85 }, pan, wet: 0, attack: 0.001 });
-    noise(at, 0.009 * length, 0.20 * weight, 3200, { pan, wet: 0, attack: 0.0006 });
-    metal(at + 0.002, weight, pan, length);
-  }
-
-  function mechanicalTravel(at, duration, weight = 1, pan = 0, { presence = 1, hold = 0.78 } = {}) {
-    // A rough guide/rammer movement under separate, irregular contact taps.
-    // The reference's continuous low-frequency background is not reproduced.
-    noise(at, duration, 0.38 * weight, 410, { noise: 'grit', filter: { type: 'bandpass', frequency: 410, q: 0.65 }, pan, wet: 0, attack: 0.012, sustain: hold });
-    noise(at + 0.008, duration - 0.012, 0.13 * weight * presence, 1350, { noise: 'grit', filter: { type: 'bandpass', frequency: 1350, q: 0.55 }, pan, wet: 0, attack: 0.016, sustain: presence > 1 ? hold : 0.65 });
-  }
-
-  function breechOpen(at) {
-    // Unlocking double clack, a short rough withdrawal, then a heavier stop.
-    steelStrike(at, 0.46, -0.12, 0.64);
-    noise(at + 0.027, 0.018, 0.15, 1850, { wet: 0, pan: -0.10, attack: 0.001 });
-    mechanicalTravel(at + 0.057, 0.222, 0.78, -0.12);
-    for (const [offset, gain, frequency] of [[0.092, 0.08, 870], [0.151, 0.11, 580], [0.224, 0.075, 1080]]) {
-      noise(at + offset, 0.016, gain, frequency, { filter: { type: 'bandpass', frequency, q: 0.9 }, wet: 0, pan: -0.12, attack: 0.001 });
+  function recordedVoice(cue, at) {
+    const buffer = recordings.get(cue);
+    if (!buffer) return false;
+    while (voices.size >= MAX_SOURCES) release(voices.values().next().value, true);
+    const source = context.createBufferSource();
+    const voice = { source, nodes: [source] };
+    try {
+      const duration = Math.min(buffer.duration, RECORDINGS[cue].duration);
+      source.buffer = buffer;
+      source.loop = false;
+      source.playbackRate.setValueAtTime(1, at);
+      // Preserve the recording: no pitch shift, filter, envelope or reverb.
+      // Common output gain/compression is shared with the other effects.
+      source.connect(compressor);
+      voices.add(voice);
+      source.onended = () => release(voice);
+      source.start(at, 0, duration);
+      source.stop(at + duration);
+      return true;
+    } catch (error) {
+      if (voices.has(voice)) release(voice, true); else disconnect(source);
+      throw error;
     }
-    steelStrike(at + 0.315, 0.83, -0.15);
-    noise(at + 0.371, 0.026, 0.085, 690, { filter: { type: 'bandpass', frequency: 690, q: 1.4 }, wet: 0, pan: -0.15 });
-  }
-
-  function shellLoad(at) {
-    // Hold the textured scrape almost to seating, with more midrange contact
-    // and quieter guide taps so the shell's sliding motion stays audible.
-    mechanicalTravel(at, 0.283, 1.45, 0.12, { presence: 2.8, hold: 0.9 });
-    for (const [offset, gain, frequency] of [[0.023, 0.055, 1100], [0.069, 0.075, 730], [0.128, 0.065, 1370], [0.177, 0.09, 640], [0.239, 0.07, 960]]) {
-      noise(at + offset, 0.014, gain, frequency, { filter: { type: 'bandpass', frequency, q: 1.1 }, wet: 0, pan: 0.12, attack: 0.001 });
-    }
-    steelStrike(at + 0.292, 0.90, 0.08, 1.15);
-    noise(at + 0.397, 0.043, 0.14, 510, { noise: 'grit', filter: { type: 'bandpass', frequency: 510, q: 0.8 }, wet: 0, pan: 0.08 });
-    noise(at + 0.451, 0.018, 0.055, 1280, { wet: 0, pan: 0.08, attack: 0.001 });
-  }
-
-  function breechClose(at) {
-    // Short draw-in, a heavy block impact, then an isolated locking clack.
-    mechanicalTravel(at, 0.176, 0.68, -0.05);
-    noise(at + 0.08, 0.022, 0.10, 680, { noise: 'grit', wet: 0, pan: -0.05 });
-    // A dedicated thick block impact: longer low-frequency pressure, stronger
-    // casing resonance and a restrained sharp edge. Its tail falls beneath
-    // the separate locking latch.
-    noise(at + 0.225, 0.12, 1.15, 140, { noise: 'brown', pan: 0.06, wet: 0, attack: 0.001, sustain: 0.2 });
-    noise(at + 0.226, 0.085, 0.58, 230, { filter: { type: 'bandpass', frequency: 230, q: 0.85 }, pan: 0.06, wet: 0, attack: 0.001, sustain: 0.15 });
-    noise(at + 0.225, 0.012, 0.14, 2300, { pan: 0.06, wet: 0, attack: 0.0006 });
-    metal(at + 0.227, 1.6, 0.06, 1.05);
-    noise(at + 0.32, 0.011, 0.23, 2900, { wet: 0, pan: 0.06, attack: 0.0006 });
-    noise(at + 0.321, 0.029, 0.17, 480, { filter: { type: 'bandpass', frequency: 480, q: 1.1 }, wet: 0, pan: 0.06, attack: 0.001 });
-    metal(at + 0.32, 0.67, 0.06, 0.55);
   }
 
   function loadClose(at) {
-    // Compatibility for older callers; new animation stages use separate cues.
-    shellLoad(at);
-    breechClose(at + 0.54);
+    if (!recordings.has('shellLoad') || !recordings.has('breechClose')) return false;
+    const loadingDuration = Math.min(recordings.get('shellLoad').duration, RECORDINGS.shellLoad.duration);
+    recordedVoice('shellLoad', at);
+    recordedVoice('breechClose', at + loadingDuration + 0.02);
+    return true;
   }
 
   function fire(at) {
@@ -333,11 +382,21 @@ export function createArtilleryAudio({ contextFactory, random = Math.random } = 
 
   function play(cue, options = {}) {
     if (!enabled || disposed || !context || context.state !== 'running') return false;
-    const effects = { breechOpen, shellLoad, breechClose, loadClose, fire, impact, salvoImpact, radio, bugle, failure };
-    if (!Object.hasOwn(effects, cue)) return false;
+    const effects = { fire, impact, salvoImpact, radio, bugle, failure };
+    const recorded = Object.hasOwn(RECORDINGS, cue);
+    if (!recorded && cue !== 'loadClose' && !Object.hasOwn(effects, cue)) return false;
     try {
-      prepareBuses();
       const at = context.currentTime + 0.008;
+      if (recorded || cue === 'loadClose') {
+        // A missing or still-loading clip is silent. Never synthesize a fallback
+        // or replay a late asynchronous result after its visual phase passed.
+        if (recorded && !recordings.has(cue)) return false;
+        if (cue === 'loadClose' && (!recordings.has('shellLoad') || !recordings.has('breechClose'))) return false;
+        output.gain.cancelScheduledValues(context.currentTime);
+        output.gain.setValueAtTime(OUTPUT_LEVEL, context.currentTime);
+        return recorded ? recordedVoice(cue, at) : loadClose(at);
+      }
+      prepareBuses();
       if (cue === 'salvoImpact') salvoImpact(at, options?.count ?? 1);
       else if (cue === 'bugle') bugle(at, options?.success !== false);
       else effects[cue](at);
@@ -351,12 +410,16 @@ export function createArtilleryAudio({ contextFactory, random = Math.random } = 
   function dispose() {
     if (disposed) return;
     disposed = true; enabled = false;
+    lifetimeAbort.abort();
+    for (const request of requests) request.abort();
+    requests.clear();
     stopAll();
     disconnect(compressor); disconnect(output);
     try { Promise.resolve(context?.close()).catch(() => {}); } catch {}
     context = null; compressor = null; output = null;
     buffers.clear(); impulse = null; brassWave = null;
+    recordingBytes.clear(); recordings.clear(); decoding.clear(); contextVersion++;
   }
 
-  return { unlock, setEnabled, play, stopAll, dispose };
+  return { unlock, preload, prepare, setEnabled, play, stopAll, dispose };
 }

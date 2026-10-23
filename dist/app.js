@@ -18,11 +18,14 @@ let traceInputs = [], allowedInputCount = 0;
 let preview = true, traceVisible = false, busy = false, sound = true;
 let witness = null, impacts = [], hintCount = 1, turnToken = 0, toastTimer;
 let firingPhase = 'idle', currentStage = null, sequenceStarted = false, sequenceAbort = null;
+let audioPreparationAbort = null;
 let revealedStages = new Set();
 const SOUND_STORAGE_KEY = 'danger-close-sound-v1';
 try { sound = localStorage.getItem(SOUND_STORAGE_KEY) !== 'off'; } catch {}
 const artilleryAudio = createArtilleryAudio();
 artilleryAudio.setEnabled(sound);
+// Fetch the short recordings early without creating an AudioContext.
+void artilleryAudio.preload().catch(() => {});
 const battleEffects = createBattleEffects({ grid: $('grid'), battlefield: document.querySelector('.battlefield'), commandPanel: document.querySelector('.command-panel') });
 const BEST_STORAGE_KEY = 'danger-close-best-proof-bonus-v1';
 const PREVIOUS_PROOF_STORAGE_KEY = 'danger-close-best-general-v1';
@@ -343,17 +346,31 @@ function applyOrderResult(result,mode,expression) {
 async function fire(mode) {
   if(busy||battle.finished) return;
   if(!$('goal-input').value.trim()) { flash('missingGoal');$('goal-input').focus();return; }
-  // Unlock in the user gesture, before any timer or verifier work.
-  if(sound)void artilleryAudio.unlock();
-  sequenceAbort?.abort();sequenceAbort=new AbortController();
+  sequenceAbort?.abort();
+  const controller=new AbortController();sequenceAbort=controller;
+  const currentToken=turnToken;
+  const isCurrent=()=>currentToken===turnToken&&sequenceAbort===controller&&!controller.signal.aborted;
   const expression=$('invariant-input').value, goalSource=$('goal-input').value;
   busy=true;sequenceStarted=true;revealedStages.clear();currentStage='initial';firingPhase='initial';
   lastAnalysis=null;witness=null;impacts=[];battleEffects.clear();feedbackState={type:'sequencing'};
   render();
-  const currentToken=turnToken;
   try {
-    await runFiringSequence({iterator:orderStages(battle,expression,goalSource,mode),mode,signal:sequenceAbort.signal,onEvent:event=>{
-      if(currentToken!==turnToken)return;
+    if(sound) {
+      const preparation=new AbortController();audioPreparationAbort=preparation;
+      const cancelPreparation=()=>preparation.abort();
+      controller.signal.addEventListener('abort',cancelPreparation,{once:true});
+      try {
+        // prepare unlocks synchronously in this gesture, then waits for fetch
+        // and decode. Failure/timeout leaves missing cues silent, not the game.
+        await artilleryAudio.prepare({signal:preparation.signal,timeoutMs:4000});
+      } catch {} finally {
+        controller.signal.removeEventListener('abort',cancelPreparation);
+        if(audioPreparationAbort===preparation)audioPreparationAbort=null;
+      }
+    }
+    if(!isCurrent())return;
+    await runFiringSequence({iterator:orderStages(battle,expression,goalSource,mode),mode,signal:controller.signal,onEvent:event=>{
+      if(!isCurrent())return;
       if(event.type==='checking') {
         currentStage=event.stage;setFiringPhase(event.stage);renderChecks();
       } else if(event.type==='checked') {
@@ -384,6 +401,7 @@ async function fire(mode) {
       }
     }});
   } catch(error) {
+    if(!isCurrent())return;
     artilleryAudio.stopAll();battleEffects.clear();currentStage=null;busy=false;
     firingPhase='failed';feedbackState={type:'exception',error};render();
   }
@@ -463,6 +481,7 @@ $('result-retry').addEventListener('click',()=>{closeDialog('result-dialog');loa
 $('result-next').addEventListener('click',()=>{closeDialog('result-dialog');nextRound();});
 $('sound-button').addEventListener('click',async()=>{
   sound=!sound;artilleryAudio.setEnabled(sound);renderSound();
+  if(!sound)audioPreparationAbort?.abort();
   try{localStorage.setItem(SOUND_STORAGE_KEY,sound?'on':'off');}catch{}
   if(sound&&await artilleryAudio.unlock())playCue('radio');
 });
