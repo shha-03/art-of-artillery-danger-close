@@ -1,235 +1,69 @@
 # Art of Artillery: Danger Close
 
-불변식으로 아군을 엄호하고 적을 격파하는 포격 퍼즐입니다. 임의의 정수 외부 입력을 받는 프로그램을 읽고, 초기화 이후 반복해서 유지되는 관계를 찾아 고정된 수학 명세를 보장합니다. 기존 5개 챕터의 20개 작전에 이어, 여섯 번째 챕터는 `x, y, z` 세 상태 변수를 사용합니다. 전장은 선택한 `z`값의 2차원 단면으로 표시합니다.
+Command artillery by writing loop invariants. Eliminate enemy units while protecting friendly forces across 24 operations.
 
-## 언어 / Language
+## Run
 
-한국어 / English 스위치로 표시 언어를 바꿀 수 있습니다. 선택은 브라우저에 저장되며, 전투 중 전환해도 입력한 불변식, 작전, 포격 결과와 남은 명령은 유지됩니다.
-
-Use the 한국어 / English switch to change language. Your preference is saved in this browser. Switching during combat preserves your invariant, mission, firing results, and remaining orders.
-
-## 실행과 테스트
-
-별도 설치나 빌드 없이 프로젝트 디렉터리에서 실행합니다.
+Install Node.js with npm, then run this command from the project directory:
 
 ```sh
 node server.mjs
 ```
 
-출력된 주소를 브라우저로 여세요. 정적 파일은 `dist/`에 있습니다.
+Open [http://127.0.0.1:4173](http://127.0.0.1:4173) in a browser. No dependency installation or build step is required. Stop the server with `Ctrl+C`.
+
+## Test
+
+Run the complete test suite from the project directory:
 
 ```sh
 npm test
 ```
 
-파서 보안, 입력별 검증, 수학적 결과, 대표 전장 투영, 포격·점수, 병과 배점과 한·영 문구를 검사합니다. 간결화 회귀 테스트는 남긴 조건을 더 삭제했을 때의 반례와 음수인 가상 상태에서의 유지도 확인합니다. 3변수 검사는 층을 구분한 표적 식별, 보이지 않는 층의 반례, 모든 층의 일제사와 기존 작전 호환성을 포함합니다.
+If npm is unavailable, use the built-in Node.js test runner:
 
-## 입력, 초기화, 전장의 관계
-
-모든 새 작전의 **수학적 외부 입력 계약은 `(a,b) ∈ ℤ²`**입니다. 프로그램은 초기화 코드를 먼저 실행해 상태 변수와 상수 `n`, `m`을 정한 뒤 반복문에 진입합니다. 일반적으로 `n = |a|`, `m = |b|`를 계산하며, 각 알고리즘에 필요한 초기 상태를 설정합니다. 예를 들어 음이 아닌 길이를 처리하거나 제수 `m+1`을 사용해 0으로 나누지 않는 계산을 정의합니다. 외부 입력을 세 개의 값으로 접거나 검사창에 맞춰 잘라내지 않습니다.
-
-반복문에서는 작전에 따라 `x`, `y` 또는 `x`, `y`, `z`가 변합니다. `a`, `b`, `n`, `m`은 읽기 전용이므로, 불변식과 목표가 입력과 결과 사이의 관계를 표현할 수 있습니다. 외부 입력이 무제약이어도 초기화 직후 상태가 모든 좌표일 필요는 없습니다. 따라서 `x+y == n+m` 같은 유용한 불변식을 세울 수 있습니다.
-
-전장에는 **대표 외부 입력 3개**의 실제 종료 좌표만 표시합니다. 같은 종료 좌표는 적 한 기로 합칩니다. 이 예시는 허용 입력의 제한이 아니며 전체 입력 검사를 대신하지 않습니다. 입력 버튼을 누르면 해당 초기화 결과와 실행 경로를 볼 수 있습니다.
-
-## Dafny 프로그램 표기
-
-24개 작전의 초기화와 반복문을 Dafny 문법으로 표시합니다. 예를 들어 `var x: int := n;`은 정수 변수 선언이고, `x := x - 1;`은 대입입니다. 절댓값은 `if a < 0 then -a else a`, 정수 반감과 중간값은 `/ 2`로 표현합니다. 표시되는 코드는 메서드 본문에 해당하는 조각이며 외부 입력 `a, b: int`는 작전의 입력 계약에서 주어집니다.
-
-불변식 입력란에는 `invariant` 키워드나 세미콜론 없이 참/거짓 조건식만 작성합니다. `ensures`와 불변식은 별도 입력란에 유지합니다. 프로그램의 순차 대입 순서와 알고리즘, 기존 작전의 배치·배점은 그대로입니다. 내부 실행 함수와 표시 코드는 테스트에서 서로 대조합니다.
-
-수식의 `/`와 `%`는 Dafny 정수 연산을 따릅니다. `a = (a / b) * b + a % b`이며, `b != 0`일 때 `0 <= a % b < |b|`입니다. 예를 들어 `-5 / 3 == -2`, `-5 % 3 == 1`, `5 / -3 == -1`입니다. 게임은 아래에 명시한 유한 범위를 전수검사하며 Dafny 검증기나 SMT 솔버를 실행하지 않습니다.
-
-## 게임 방법
-
-1. 외부 입력, 초기화 코드와 반복문을 확인합니다.
-2. 읽기 전용 `ensures`를 읽습니다. 이는 좌표 목록이 아니라 입력과 결과의 관계를 나타내는 고정 수학 명세입니다.
-3. 빈 입력란에서 초기화 직후 참이고 매 반복에서 유지되는 불변식 `I`를 작성합니다. 처리한 양과 남은 양, 합·차·곱, 누산값과 수학적 결과 사이의 관계를 활용합니다. 기존 기본 수식은 정보 보고의 1단계 힌트에서만 참고할 수 있으며 입력란에 자동으로 채워지지 않습니다. 재시작하거나 다른 작전을 선택해도 빈칸으로 시작합니다.
-4. 단발 또는 일제사로 검사를 실행합니다. 실패하면 입력 상수와 반복 전후 상태가 포함된 반례를 보고 불변식을 수정합니다.
-5. 전장의 적을 모두 격파하면 즉시 작전이 완료됩니다. 마지막 사격에서 고정 수학 명세까지 보장하면 최종 점수에 검증 보너스 ×2를 적용합니다.
-
-입력별 포격 후보는 다음 식으로 정합니다.
-
-```text
-S(a,b) = I(state,a,b,n,m) && !guard(state,a,b,n,m)
-state = (x,y) 또는 (x,y,z)
-전장 후보 = 대표 입력 3개의 S를 지도에 투영한 좌표 합집합
+```sh
+node --test
 ```
 
-지도 밖 종료 후보도 검증에 포함되지만 포격 대상으로 표시하지 않습니다. 같은 좌표가 여러 대표 입력에서 나오면 한 번만 포격합니다. 지도 클릭으로 목표를 만들거나 `ensures`를 `true`로 바꿔 작전의 수학 명세를 생략할 수 없습니다.
+## How to play
 
-초기 성립 → 유지 → 종료 시 보장(ensures)을 순차 검사합니다. **초기 성립과 유지가 통과하면 종료 시 보장이 실패해도 경고 후 발포하며, 포격과 적·아군 피해 판정은 유효합니다.** 초기 성립·유지 실패 또는 구문·산술 오류는 후속 검증과 발포를 중단합니다. **적이 전멸하면 종료 시 보장 결과와 관계없이 즉시 작전을 완료합니다.** 마지막 사격의 초기 성립·유지·종료 시 보장과 고정 수학 명세가 검사창 내 모두 통과했다면 기본 점수 전체를 두 배로 계산합니다. 완료 후 재검증이나 보너스 추가 획득은 없으며, 새 점수에 도전하려면 재투입해야 합니다.
+1. Select an operation and open **Initialization & loop**. Read the program and its fixed, read-only `ensures` condition: the result you want to guarantee when the loop exits.
+2. Write a condition in the empty **Firing solution** field. It must hold after initialization and remain true after every loop iteration. Use only the condition, without the `invariant` keyword or a semicolon.
+3. Switch to **Battlefield** to inspect the candidate area and execution trace. In three-variable operations, change the `z` layer to inspect other parts of the battlefield.
+4. Issue a **Single shot** or **Salvo**. Review the checks and any counterexample, then refine your invariant before the next order.
+5. Eliminate every enemy. A fully verified final shot also earns the score multiplier described below.
 
-## 사격 연출과 사운드
+Use **Intel report** when you need help. Its first hint includes the former default formula as a reference; it does not fill the editor. The final hint reveals an example solution and explanation. Restarting or switching operations starts with an empty invariant field.
 
-명령 하달 후 초기 성립 확인과 폐쇄기 개방 → 유지 확인과 탄 장전·폐쇄기 폐쇄 → 종료 시 보장 결과 또는 미보장 경고와 발포 → 짧은 비행 지연 → 지도 위 포탄 낙하 → 착탄 → 무전 보고 순으로 진행합니다. 종료 시 보장만 실패한 경우에도 같은 포격 연출과 피해 판정을 적용합니다. 전력·피격 기록·점수는 무전 보고 시점에 한 번만 반영합니다. 일제사는 여러 포탄이 함께 낙하하고 여러 폭발음을 겹쳐 재생합니다. 작전 종료에는 나팔을 재생합니다.
+Expressions support integers, the operation's variables and input constants, `+ - * / %`, comparisons, `&&`, `||`, `!`, parentheses, `true`, and `false`. For example, combine bounds as `x >= 0 && x <= n`. `/` is integer division and `%` returns a nonnegative remainder. Consult the in-game **Field manual** for the full syntax and test windows.
 
-사운드는 기본 ON이며 첫 사용자 격발 또는 사운드 버튼에서 오디오를 활성화합니다. ON/OFF 선택은 브라우저에 저장되고, OFF는 재생 중인 소리도 즉시 중단합니다. 폐쇄기 개방·탄 장전·폐쇄·발포는 사용자 제공 MP3 녹음을 재생합니다. 착탄·무전·나팔 등 나머지 효과음은 Web Audio 합성을 사용합니다. 탄 장전과 폐쇄기 폐쇄는 별도 단계로 재생합니다. 브라우저의 오디오 미지원이나 음원 로딩 실패에도 검증과 시각 연출은 진행합니다. 일제사 착탄 음원 수는 제한하고 공통 압축기를 거칩니다. 운영체제의 동작 줄이기 설정에서는 큰 이동·섬광 대신 정적인 단계 표시를 사용합니다.
+Keyboard shortcuts: `Ctrl+Enter` fires a single shot; `Ctrl+Shift+Enter` fires a salvo. The language selector switches between Korean and English without resetting the operation. Sound can be toggled independently.
 
-녹음 파일은 `dist/audio/`의 44.1kHz 스테레오 MP3 세 개입니다. `sound1.mp3`는 0–0.68초를 폐쇄기 개방, 0.68초 이후 약 0.391초를 폐쇄에 사용합니다. `sound2.mp3`는 장전에 전체 약 1.176초, `sound3.mp3`는 발포에 전체 약 3.370초를 재생합니다. 파형의 작동음과 마지막 충격 사이의 저에너지 구간에서 폐쇄기 소리를 나눴습니다. 원음의 속도·음높이·MPEG 오디오 프레임을 유지하고 일정한 음량 보정만 적용합니다. 로컬 프로젝트 경로가 포함된 ID3 메타데이터는 배포 파일에서 제거합니다. 자세한 배정·해시 기록은 `dist/audio/SOURCE.md`에 있습니다.
+## Basic rules
 
-개방 720ms, 장전 1,220ms, 폐쇄 440ms의 순서로 동작을 구분합니다. 발포 후 400ms가 지나면 비행 지연 단계로 넘어가며 긴 발포 잔향은 비행·착탄과 겹쳐 끝까지 재생합니다. 녹음은 파일별로 미리 받아 공유 디코딩하며, 취소·음소거·페이지 전환 뒤에 늦게 재생되지 않도록 처리합니다.
+- Each operation starts with **six orders**. A single shot hits one unstruck candidate; a salvo hits every unstruck candidate. Either costs **one order**, including salvos across all `z` layers.
+- Candidates satisfy both your invariant and the loop's exit condition for the displayed battlefield inputs. Target priority is **neutral, then friendly, then enemy**; ties use coordinate order. Previously struck cells are never targeted again. Selecting a layer changes only the view.
+- Checks run in sequence: **Initiation → Preservation → Guarantee on exit**. Failed initiation or preservation stops later checks and produces a dud: one order spent, no damage.
+- A failed guarantee on exit still permits firing and damage if initiation and preservation passed. Syntax or arithmetic errors stop the order without charging it. Empty inputs cannot fire; an otherwise valid order with no remaining candidates also costs nothing.
+- Destroying all enemies completes the operation, even without a guarantee on exit. Running out of orders while enemies remain ends the operation in failure.
+- Blue rectangular units are friendly; red diamond units are enemies. Destroyed units gain or lose points according to their branch:
 
-연출 중에는 중복 격발·입력 편집·작전 전환·층 전환을 막습니다. 음소거는 계속 사용할 수 있습니다. 페이지를 떠나면 남은 소리와 연출을 정리합니다. 자동 검사는 작전별 유한 검사창을 사용하며, 여기서 종료 시 보장은 루프 종료 상태에서의 ensures 검증입니다. 불변식 검사 자체가 프로그램의 종료성을 증명하지는 않습니다.
-
-## 유한 검사창과 검증의 의미
-
-입력 계약과 자동 검사의 범위를 구분합니다.
-
-| 구분 | 범위와 의미 |
-| --- | --- |
-| 수학적 외부 입력 | 임의의 정수 `a`, `b` |
-| 외부 입력 검사창 | `−4 ≤ a,b ≤ 4`의 81개 정수 쌍 |
-| 기존 20개 작전의 상태 검사창 | `−32 ≤ x,y ≤ 32`의 4,225개 정수 상태 |
-| 3변수 작전의 상태 검사창 | 각 작전의 `domains`에 선언된 x·y·z 범위의 모든 조합; 화면과 교범에 현재 범위 표시 |
-| 유지·목표 검사 | 입력별 상수를 고정하고 `81 × 해당 작전의 상태 수`개 조합 검사 |
-| 전장 표시 | 대표 입력 3개의 결과와 후보를 x–y 지도에 투영; 3변수 작전에서는 선택한 z층 표시 |
-
-검사는 다음 세 조건을 다룹니다.
-
-- **초기 성립:** 81개 외부 입력 각각을 초기화한 직후 `I`가 참인지 검사합니다. 초기화 결과의 좌표가 같더라도 외부 입력 쌍은 별도 사례입니다.
-- **유지:** 각 입력의 `a,b,n,m`을 고정하고, 상태 검사창의 모든 `I && guard` 상태에서 한 번 실행한 뒤에도 `I`가 참인지 검사합니다. 실제 경로에 없는 상태도 포함합니다.
-- **목표 보장:** 각 입력의 모든 검사 대상 `I && !guard` 상태가 고정된 수학 명세를 만족하는지 검사합니다.
-
-이 결과는 **명시된 유한 검사창에 한정되며 무한 정수 전체에 대한 증명이 아닙니다.** 입력 창 밖의 `a,b`와 상태 창 밖의 모든 상태를 검사했다고 주장하지 않습니다. 전이 결과를 경계로 자르거나 무시하지도 않습니다. 검사 대상 반복 상태의 후속 상태가 해당 작전의 검사창을 벗어나면 유지 실패로 처리합니다.
-
-화면의 실행 경로는 이해를 돕는 예시이며 증거를 대신하지 않습니다. 지도 밖 구간은 잘라 표시합니다. 유지·목표 반례는 실제 실행으로 도달하지 않는 상태일 수도 있습니다. 불변식 검사 자체는 프로그램의 종료성을 증명하지 않습니다.
-
-## 포격과 점수
-
-- 단발은 전체 층의 미포격 후보 중 다음 표적 한 곳, 일제사는 모든 층의 미포격 후보 전체를 공격합니다. 두 방식 모두 명령 1회를 사용합니다. 관측 중인 층은 사격 범위에 영향을 주지 않습니다.
-- 초기 성립·유지 실패는 피해 없이 명령 1회를 소모하는 불발입니다. 구문·산술 오류는 발포와 명령 차감 없이 중단합니다.
-- 종료 시 보장만 실패한 경우 경고 후 발포하며 적·아군 피해를 그대로 반영합니다. 적 전멸 시 즉시 완료하지만 검증 보너스는 적용하지 않습니다.
-- 타격 우선순위는 중립 → 아군 → 적군이며, 같은 종류에서는 x, y, z 좌표순으로 결정합니다. 2변수 작전은 기존 x, y 순서를 유지합니다.
-- 포격 완료 칸은 재공격하지 않습니다. 파괴된 유닛도 중립 칸으로 다시 공격하지 않습니다.
-- 중립 칸은 처치 점수가 없고 일제사의 추가 명령 비용도 만들지 않습니다.
+| Branch | Symbol inside the frame | Enemy destroyed | Friendly destroyed |
+| --- | --- | ---: | ---: |
+| Infantry | Crossed lines | +2 | -2 |
+| Armor | Oval | +4 | -4 |
+| Artillery | Dot | +6 | -6 |
 
 ```text
-기본 점수 = 격파한 적의 병과 점수 합 − 피해를 입힌 아군의 병과 점수 합 + 남은 명령
-최종 점수 = 기본 점수 × 검증 배율
-검증 배율 = 2: 적 전멸을 만든 마지막 사격의 초기·유지·종료 시 보장·고정 명세가 모두 통과
-검증 배율 = 1: 종료 시 미보장 완료, 진행 중인 작전, 명령 소진 실패
+Base score = enemy points gained - friendly points lost + orders remaining
+Final score = base score × verification multiplier
 ```
 
-| 병과 | 내부 기호 | 적 격파 | 아군 피해 |
-| --- | --- | --- | --- |
-| 보병 | 교차선 X | +2 | −2 |
-| 기갑 | 타원 | +4 | −4 |
-| 포병 | 검은 점 | +6 | −6 |
+The multiplier is **2** when the shot that eliminates the last enemy passes all checks, including the fixed specification. Otherwise it is **1**. The multiplier applies to the entire base score. Completed scores cannot be changed by a later recheck; restart to try again. Best scores are saved for completed operations.
 
-적의 총점을 V, 서로 다른 적 좌표 수를 k라고 하면, 아군 피해 없이 정확한 단발 k회로 전멸시킨 기본 점수는 `V + 6 − k`, 정확한 일제사 1회로 전멸시킨 기본 점수는 `V + 5`입니다. 마지막 사격의 검증까지 모두 통과했다면 최종 점수는 각각 `2 × (V + 6 − k)`, `2 × (V + 5)`입니다. 배율은 피해 차감과 잔여 명령까지 포함한 기본 점수 전체에 적용하며, 이전 사격의 검증 통과만으로는 보너스를 얻지 못합니다. 처치 수와 점수는 별도로 집계하며 같은 유닛의 점수를 중복 적용하지 않습니다.
+Single shots limit each order's damage; salvos offer a higher score by conserving orders but expose every candidate to fire. A more precise invariant helps exclude friendly positions.
 
-현재 캠페인은 기존 작전 ID `g01`부터 `g20`, 추가 3변수 작전 ID `s01`부터 `s04`와 저장 키 `danger-close-best-proof-bonus-v1`을 사용합니다. 기존 작전의 ID·점수 기준·저장 기록을 유지합니다. 최고 점수는 적을 전멸시켜 완료한 작전에 기록하며, 종료 시 미보장 완료의 ×1 점수도 저장합니다. 이전 검증 규칙의 `danger-close-best-general-v1` 기록은 삭제하지 않고 완료 기록과 함께 보존하며, 별도 표시로 구분하고 새 점수와 수치 비교하지 않습니다. 이보다 오래된 캠페인의 기록은 현재 캠페인의 점수·완료 여부와 섞지 않습니다.
+The programs accept arbitrary integer inputs, but automatic verification checks only the finite windows stated in the game. A passing check is not a proof over all integers or a proof that the loop terminates.
 
-### 아군 분리 요구에 따른 배점
-
-각 대표 전장 입력의 상수를 고정한 뒤, 실행 경로를 포함하는 각 상태 변수의 범위를 만듭니다. 2변수는 직사각형, 3변수는 직육면체에 해당합니다. 넓은 기준 불변식과 그 범위를 함께 만족하는 모든 반복 상태의 후속 상태를 포함하도록 범위를 확장해 고정점에 도달시킵니다. 종료 영역에 섞이는 아군 좌표가 0기면 보병 2점, 1기면 기갑 4점, 2기 이상이면 포병 6점입니다.
-
-입력마다 상수가 다르므로 범위의 보존 여부도 해당 입력 문맥에서 따로 검사합니다. 같은 적 좌표에 도달하는 대표 입력이 여러 개면 포함되는 아군 좌표를 중복 없이 합칩니다. 반복 조건이 아직 참인 아군 좌표는 종료 후보가 아니므로 세지 않습니다. 전력 명세에서 노출되는 아군의 수와 좌표를 확인할 수 있습니다.
-
-이 값은 선택한 범위 근사에서 잃은 관계를 보완하는 요구를 나타내는 게임 기준입니다. 같은 노출에는 같은 점수를 부여하며 적 병과와 점수가 중복될 수 있습니다. 사격 순서나 물리적 거리로 정하지 않으며, 가능한 모든 불변식의 최단 길이나 절대적 증명 난도를 뜻하지 않습니다. 대표 전장에 대한 이 배점 계산과 81개 입력 전체의 프로그램 검증은 별개입니다.
-
-## 기존 20개 작전 캠페인
-
-각 챕터는 네 작전으로 구성됩니다. 불변식 열은 핵심 관계를 설명하며, 실제 해법에는 비음수·상한·순서 등의 필요한 범위 조건을 함께 사용합니다.
-
-| 순서 | 챕터 | 작전 | 핵심 불변식 개념 |
-| --- | --- | --- | --- |
-| 01 | 1. 입력과 보존량 | 값 이송 | 남은 양과 처리한 양의 합 |
-| 02 | 1. 입력과 보존량 | 두 크기의 합 | 초기 합의 보존 |
-| 03 | 1. 입력과 보존량 | 배가 누산 | 변화율에 맞춘 가중 합 |
-| 04 | 1. 입력과 보존량 | 반복 덧셈 곱셈 | 입력 매개변수를 가중치로 사용 |
-| 05 | 2. 분기와 경계 | 용량과 최솟값 | 두 종료 원인과 합 보존 |
-| 06 | 2. 분기와 경계 | 차이 소거 | 차이 보존과 부호에 따른 결과 |
-| 07 | 2. 분기와 경계 | 상한 집결 | 입력 순서별 분기 불변식 |
-| 08 | 2. 분기와 경계 | 맨해튼 거리 | 부호 분기와 남은 거리 |
-| 09 | 3. 몫과 균형 | 몫과 나머지 | 제수로 가중한 보존식 |
-| 10 | 3. 몫과 균형 | 올림 나눗셈 | 음수 잔여량과 엄격한 하한 |
-| 11 | 3. 몫과 균형 | 순환 계수 | 반복 횟수와 합동 관계 |
-| 12 | 3. 몫과 균형 | 균형 정수평균 | 합 보존과 종료 구간 |
-| 13 | 4. 누적합과 다항식 | 삼각수 집결 | 누적값과 남은 합의 보존 |
-| 14 | 4. 누적합과 다항식 | 등차수열 누산 | 처리한 접두 합의 닫힌식 |
-| 15 | 4. 누적합과 다항식 | 홀수로 제곱 | 차분으로 유지되는 제곱 관계 |
-| 16 | 4. 누적합과 다항식 | 짝수로 연속곱 | 인접한 두 정수의 곱과 차분 |
-| 17 | 5. 제곱과 탐색 | 제곱합 보급 | 세제곱 보존량으로 제곱 누산 증명 |
-| 18 | 5. 제곱과 탐색 | 제곱근과 잔여량 | 제곱 관계와 종료 부등식 |
-| 19 | 5. 제곱과 탐색 | 올림 제곱근 | 현재 제곱과 직전 제곱의 경계 |
-| 20 | 5. 제곱과 탐색 | 제곱근 이분 탐색 | 정답을 사이에 둔 두 경계 |
-
-각 작전에는 한·영 브리핑, 변수의 역할, 핵심 보존 관계, 단계별 힌트 세 개가 있습니다. 마지막 힌트를 열면 예시 불변식과 **초기 성립·유지·ensures 도출·간결화 근거** 해설을 함께 표시합니다. 앞선 힌트에서는 해설을 숨겨 정답을 미리 노출하지 않습니다. 고정 명세와 정답은 좌표 나열 대신 입력 상수에 대한 수학적 관계로 작성합니다.
-
-예를 들어 덧셈·곱셈·삼각수에서는 하한 `x >= 0`과 다음 보존 관계를 결합하면 충분합니다. 상한 `x <= n`은 필요 없습니다.
-
-```text
-덧셈:   x + y == n + m
-곱셈:   m * x + y == n * m
-삼각수: 2 * y + x * (x + 1) == n * (n + 1)
-```
-
-종료 시 `x == 0`을 대입하면 누산값 `y`가 각 작전의 수학적 결과임을 얻습니다. 입력 숫자가 바뀌어도 같은 식을 사용할 수 있습니다.
-
-## 층별 전장과 3변수 작전
-
-지도 위의 층 선택기와 이전·다음 버튼으로 `z`값을 바꿉니다. 각 선택 항목에 해당 층의 생존 적군·아군·포격 후보 수가 표시됩니다. 같은 `(x,y)`라도 `z`가 다르면 다른 유닛이며, 피격 기록과 배점도 별도로 유지합니다. 초기화·루프 탭과 불변식 입력란은 그대로 사용할 수 있습니다.
-
-층 선택은 관측만 바꿉니다. 검증은 모든 검사 대상 층을 순회하며, 단발도 전체 후보의 우선순위를 따르고 일제사는 모든 층의 미포격 후보를 명령 1회로 타격합니다. 현재 층에 사격 대상이 없으면 타격할 층으로 관측 화면을 옮깁니다. 화면의 낙하·폭발 효과는 표시 중인 층에만 그리며, 피해·점수·완료 판정과 일제사 음향은 전체 사격 결과를 사용합니다. 실행 경로는 같은 층에 이어지는 구간만 연결합니다.
-
-여섯 번째 챕터에는 유한차분 제곱, 짝짓기 최솟값, 단위 분배 몫·나머지, 러시아식 곱셈을 추가합니다. 각 작전의 검사창은 프로그램의 외부 입력 계약과 별개로 선언하며, 현재 창의 범위와 조합 수를 교범에서 확인할 수 있습니다. 실제 종료 좌표를 적군으로 배치하고, 한·영 힌트와 초기 성립·유지·종료 시 보장 해설을 제공합니다.
-
-## 간결화한 정답
-
-불변식은 실제로 도달 가능한 상태를 정확히 나열할 필요가 없습니다. 초기화 상태를 포함하고, 반복에 닫혀 있으며, 종료 시 명세를 보장하면 됩니다. 종료 조건에서 도출되는 성질이나 다른 조건이 이미 함의하는 경계는 별도로 유지하지 않습니다. 알고리즘, 초기화, 고정 ensures와 배점 기준은 그대로 두고 20개 예시 해법을 모두 간결화했습니다.
-
-| 작전 | 예시 불변식 | 간결화 내용 |
-| --- | --- | --- |
-| 01 | `x >= 0 && x + y == n` | x ≤ n 제거 |
-| 02 | `x >= 0 && x + y == n + m` | x ≤ n 제거 |
-| 03 | `x >= 0 && 2 * x + y == 2 * n` | x ≤ n 제거 |
-| 04 | `x >= 0 && m * x + y == n * m` | x ≤ n 제거 |
-| 05 | `x >= 0 && y <= m && x + y == n` | y ≥ 0 제거 |
-| 06 | `x >= 0 && y >= 0 && x - y == n - m` | x ≤ n, y ≤ m 제거 |
-| 07 | `(n >= m && x == n && y <= n) \|\| (n < m && y == m && x <= m)` | 각 분기에서 움직이는 변수의 초기값 하한 제거 |
-| 08 | `y <= n + m && (x + y == n + m \|\| y - x == n + m)` | y ≥ m 제거; 공통 상한으로 부호 조건 통합 |
-| 09 | `x >= 0 && x + (m + 1) * y == n` | y ≥ 0 제거 |
-| 10 | `x >= -m && x + (m + 1) * y == n` | y ≥ 0 제거; 정수 동치 하한 적용 |
-| 11 | `x <= n && y == x % (m + 1)` | Dafny 나머지 규칙에서 불필요한 x ≥ 0 제거; y의 범위도 나머지에서 도출 |
-| 12 | `x + y == a + b` | 차이의 제곱 상한 제거 |
-| 13 | `x >= 0 && 2 * y + x * (x + 1) == n * (n + 1)` | x ≤ n 제거 |
-| 14 | `x <= n && 2 * y == x * (2 * m + x - 1)` | x ≥ 0 제거 |
-| 15 | `x <= n && y == x * x` | x ≥ 0 제거 |
-| 16 | `x <= n && y == x * (x + 1)` | x ≥ 0 제거 |
-| 17 | `x >= 0 && 6 * y + x * (x + 1) * (2 * x + 1) == n * (n + 1) * (2 * n + 1)` | x ≤ n 제거 |
-| 18 | `x >= 0 && x + y * y == n` | y ≥ 0 제거 |
-| 19 | `y == x * x && (x == 0 \|\| y - 2 * x + 1 < n)` | x ≥ 0 제거; 이전 제곱을 y로 표현 |
-| 20 | `x < y && x * x <= n && n < y * y` | x ≥ 0, y ≤ n + 1 제거 |
-
-읽기 쉬운 보존식과 경계를 기준으로 조건을 삭제하고 동치식을 정리했습니다. 남은 비교 조건을 하나씩 약화하면 실제 초기 성립·유지·목표 반례가 생기는지 테스트합니다. 가능한 모든 문법 표현 중 전역적으로 가장 짧다는 주장은 아닙니다.
-
-해설의 대수적 논증은 임의의 정수 입력을 대상으로 합니다. 예를 들어 20번은 종료 시 y = x + 1이며, x < 0이라면 x² ≥ y²가 되어 x² ≤ n < y²와 모순이므로 비음수 하한을 따로 유지할 필요가 없습니다. 자동 게임 검사는 여전히 위의 유한 검사창에 한정됩니다.
-
-## 데이터와 엔진
-
-새 작전은 다음 필드를 사용합니다.
-
-- `variables`: 생략하면 `['x','y']`, 3변수 작전은 `['x','y','z']`를 지정합니다.
-- `domains`: 각 상태 변수의 `{min,max}` 검사창입니다. 기존 2변수 작전은 생략 시 `[-32,32]²`를 사용합니다.
-- `initialize({a,b})`: 초기화 후 `{x,y,n,m}` 또는 `{x,y,z,n,m}`을 반환합니다. 원래 입력 `a,b`는 엔진이 보존합니다.
-- `initializationCode`: 반복문 전에 실행되는 초기화 코드를 표시합니다.
-- `battleInputs`: 지도와 실행 경로에 사용할 대표 외부 입력 세 쌍입니다. 검증 입력의 제한이 아닙니다.
-- `guardSource`, `step`, `code`: 반복 조건, 한 단계 전이와 화면의 실행 가능한 반복문입니다. `step`은 입력 상수를 읽을 수 있지만 선언된 상태 변수만 바꿀 수 있습니다.
-- `goalSolution`: 고정 수학 명세입니다. `solution`은 예시 정답 불변식이고 `starter`는 1단계 힌트에서 제공하는 참고 불변식입니다. 불변식 입력란의 초기값은 모든 작전에서 빈 문자열입니다.
-- `explanation`, `en.explanation`: 한국어·영어 해설입니다. `initial`, `preservation`, `postcondition`, `note`에 세 검증 의무와 간결화 근거를 기록합니다. 기존 작전은 `dist/solution-explanations.js`, 3변수 작전은 `dist/levels-spatial.js`에서 제공하며 마지막 힌트와 함께 공개합니다.
-
-`verificationCasesForLevel`은 81개 외부 입력의 초기화 상태를 반환하고, `battlefieldCasesForLevel`은 대표 세 사례를 반환합니다. `analyze`는 모든 입력·상태 조합을 검사하고 대표 전장에 대한 후보만 따로 반환합니다. `previewCandidatesForLevel`과 `projectPredicate`의 지도 투영은 검증 결과가 아닙니다.
-
-엔진은 기존 `initialStates`·`initialCondition` 기반 형식도 테스트용으로 지원하지만 새 캠페인에서는 사용하지 않습니다. 초기화 형식과 기존 초기 입력 제한을 동시에 지정하면 오류입니다. 전장 샘플은 검사창 안에서 선택해 표시된 문맥도 검사의 대상이 되도록 합니다.
-
-플레이어 수식은 전용 파서로 처리하며 `eval`이나 `Function`으로 실행하지 않습니다. 변수는 `x,y,z,a,b,n,m`을 허용하며 `z`는 3변수 작전에서 사용합니다. 정수·산술 `+ - * / %`·비교·`&& || !`·괄호를 포함한 Dafny 수식 부분집합을 지원합니다. 함수 호출·속성 접근·대입·임의 코드 실행은 허용하지 않습니다. 고정 프로그램의 변수 선언과 대입, 조건식 `if … then … else …`는 불변식 입력 문법과 별개입니다.
-
-산술은 JavaScript 안전정수 범위에서 정확하게 처리하며, 범위를 벗어나는 연산과 제수가 0인 `/`, `%`는 오류로 처리합니다. 몫·나머지는 내부적으로 정확한 정수 연산을 사용해 Dafny의 비음수 나머지 규칙을 구현합니다. 이 실행상의 제한 역시 수학적 정수 전체를 검사한다는 뜻이 아닙니다. 반례에는 모든 상태 좌표와 해당 외부 입력·상수도 보존해 서로 다른 입력 문맥이나 층을 혼동하지 않도록 합니다.
-
-## 부대 기호
-
-NATO APP-6의 지상부대 식별 프레임을 사용합니다. 아군은 파란 직사각형(`#80E0FF`), 적군은 빨간 마름모(`#FF8080`)이며 검은 실선 테두리로 현재 위치를 표시합니다. 내부 기호는 보병의 교차선, 기갑의 타원, 야포의 검은 점입니다. 좌표 설명과 전력 명세에도 병과·획득 및 손실 점수를 표시하며 제대 규모는 지정하지 않습니다.
-
-근거: [NATO APP-06(E) Version 1](https://coi.nato.int/EWCOI/EW%20COI%20Shared%20Documents/WGs/NEWWG/EW%20Info%20Exchange%20Requirements%20Panel%20%28IERP%29/01_Governing%20Documents/Publications/APP-06%20NATO%20Symbology/APP-06%20EDE%20V1%20E.pdf), §1.2.1 및 Tables 1-1·1-2, Table 1-15, §3.3.1 및 Tables 3-1·3-2.
+For further reading, see [implementation details](docs/implementation.md) and [operation explanations and solutions](docs/levels.md).
