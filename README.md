@@ -36,7 +36,7 @@ The battlefield map is on the left; the invariant editor and firing controls are
 
 1. Select an operation and open **Initialization & loop**. Read the program and its fixed, read-only `ensures` condition: the result you want to guarantee when the loop exits.
 2. Write a condition in the empty **Firing solution** field. It must hold after initialization and remain true after every loop iteration. Use only the condition, without the `invariant` keyword or a semicolon.
-3. Switch to **Battlefield** to inspect the candidate area and execution trace. In three-variable operations, change the `z` layer to inspect other parts of the battlefield.
+3. Switch to **Battlefield**. Use the **Candidates** and **Execution trace** buttons above the map to **toggle the candidate area and execution trace on or off independently**. In three-variable operations, change the `z` layer to inspect other parts of the battlefield.
 4. Issue a **Single shot** or **Salvo**. Review the checks and any counterexample, then refine your invariant before the next order.
 5. Eliminate every enemy. A fully verified final shot also earns the score multiplier described below.
 
