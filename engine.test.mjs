@@ -1,12 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import {
+  DOMAIN, parseExpression, evaluate, analyze, createBattle, order, formatEngineError,
+  initialStatesForLevel, traceInputsForLevel,
+} from './dist/engine.js';
 
-// Import as an ES module independently of a package.json or build tool.
+// Retain a source check against dynamic execution while importing real modules.
 const engineSource = await readFile(new URL('./dist/engine.js', import.meta.url), 'utf8');
-const { DOMAIN, parseExpression, evaluate, analyze, createBattle, order, formatEngineError, initialStatesForLevel } = await import(
-  `data:text/javascript;base64,${Buffer.from(engineSource).toString('base64')}`
-);
+const getInitialStates = initialStatesForLevel;
+const getTraceInputs = traceInputsForLevel;
+const coordinates = (units) => units.map(({ x, y }) => ({ x, y }));
 
 const evalAt = (source, state = { x: 2, y: 3 }) => evaluate(parseExpression(source), state);
 const level = (overrides = {}) => ({
@@ -154,11 +158,11 @@ test('goal failure allows firing, with neutral then friendly then enemy priority
   const invariant = 'x >= 0 && x <= 2 && y >= 0 && y <= 2';
   const a = order(battle, invariant, 'x == 2 && y == 0', 'single');
   assert.equal(a.analysis.goal.pass, false);
-  assert.deepEqual(a.shots, [{ x: 2, y: 2, type: 'neutral' }]);
+  assert.deepEqual(a.shots, [{ x: 2, y: 2, type: 'neutral', points: 0 }]);
   const b = order(a.battle, invariant, 'x == 2 && y == 0', 'single');
-  assert.deepEqual(b.shots, [{ x: 2, y: 1, type: 'friendly' }]);
+  assert.deepEqual(b.shots, [{ x: 2, y: 1, type: 'friendly', points: 1 }]);
   const c = order(b.battle, invariant, 'x == 2 && y == 0', 'single');
-  assert.deepEqual(c.shots, [{ x: 2, y: 0, type: 'enemy' }]);
+  assert.deepEqual(c.shots, [{ x: 2, y: 0, type: 'enemy', points: 1 }]);
   assert.equal(c.battle.friendlyKills, 1);
   assert.equal(c.battle.enemyKills, 1);
   assert.equal(c.battle.score, 3);
@@ -173,10 +177,10 @@ test('tie breaks use x then y and salvo hits every unhit cell for one command', 
   assert.equal(result.shots.length, 9);
   assert.equal(result.battle.remaining, 5);
   assert.deepEqual(result.shots.slice(0, 3), [
-    { x: 0, y: 0, type: 'neutral' }, { x: 0, y: 1, type: 'neutral' }, { x: 0, y: 2, type: 'neutral' },
+    { x: 0, y: 0, type: 'neutral', points: 0 }, { x: 0, y: 1, type: 'neutral', points: 0 }, { x: 0, y: 2, type: 'neutral', points: 0 },
   ]);
-  assert.deepEqual(result.shots.at(-2), { x: 2, y: 1, type: 'friendly' });
-  assert.deepEqual(result.shots.at(-1), { x: 2, y: 0, type: 'enemy' });
+  assert.deepEqual(result.shots.at(-2), { x: 2, y: 1, type: 'friendly', points: 1 });
+  assert.deepEqual(result.shots.at(-1), { x: 2, y: 0, type: 'enemy', points: 1 });
 });
 
 test('destroyed cells remain in proof region but never become repeat neutral targets', () => {
@@ -226,24 +230,26 @@ test('authored starters expose their intended failure and each solution proves i
     assert.equal(solution.exitStateCount, 3, mission.id);
     assert.equal(solution.traceStatus, 'terminated', mission.id);
     assert.equal(solution.initial.checkedCount, initialStatesForLevel(mission).length, mission.id);
-    assert.deepEqual(solution.candidates, mission.enemies, mission.id);
+    assert.deepEqual(solution.candidates, coordinates(mission.enemies), mission.id);
     assert.equal(solution.traces.length, 3, mission.id);
     assert.equal(solution.traces.every(run => run.traceStatus === 'terminated'), true, mission.id);
     const endpoints = solution.traces.map(run => {
       const { x, y } = run.trace.at(-1);
       return { x: x + 0, y: y + 0 }; // Signed zero is the same integer coordinate.
     }).sort((a,b)=>a.x-b.x||a.y-b.y);
-    assert.deepEqual(endpoints, mission.enemies, mission.id);
+    assert.deepEqual(endpoints, coordinates(mission.enemies), mission.id);
     const clear = order(createBattle(mission), mission.solution, mission.goalSolution, 'salvo');
     assert.equal(clear.battle.cleared, true, mission.id);
     assert.equal(clear.battle.friendlyKills, 0, mission.id);
     assert.equal(clear.shots.length, 3, mission.id);
     assert.equal(clear.battle.remaining, 5, mission.id);
-    assert.equal(clear.battle.score, 8, mission.id);
+    assert.equal(clear.battle.enemyPoints, 12, mission.id);
+    assert.equal(clear.battle.friendlyPoints, 0, mission.id);
+    assert.equal(clear.battle.score, 17, mission.id);
   }
 });
 
-test('three singles score six while one salvo scores eight with the same fixed proof region', () => {
+test('three singles score fifteen while one salvo scores seventeen with the same fixed proof region', () => {
   for (const mission of LEVELS) {
     let battle = createBattle(mission);
     for (let shot = 0; shot < 3; shot++) {
@@ -255,7 +261,8 @@ test('three singles score six while one salvo scores eight with the same fixed p
       battle = result.battle;
     }
     assert.equal(battle.cleared, true, mission.id);
-    assert.equal(battle.score, 6, mission.id);
+    assert.equal(battle.enemyPoints, 12, mission.id);
+    assert.equal(battle.score, 15, mission.id);
     const salvo = order(createBattle(mission), mission.solution, mission.goalSolution, 'salvo');
     assert.equal(salvo.battle.score - battle.score, 2, mission.id);
   }
@@ -409,10 +416,6 @@ test('unknown external diagnostics are preserved without string-matching transla
   assert.equal(formatEngineError(null, 'en'), 'Unknown execution error. Inspect the error report.');
 });
 
-const { initialStatesForLevel: getInitialStates } = await import(
-  `data:text/javascript;base64,${Buffer.from(engineSource).toString('base64')}`
-);
-
 test('all allowed inputs must establish the invariant and each input has its own execution trace', () => {
   const inputs = [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 2 }];
   const mission = level({ initial: undefined, initialStates: inputs });
@@ -495,10 +498,6 @@ test('per-input termination statuses stay distinct while legacy trace fields sel
   assert.equal(legacyReport.traces.length, 1);
   assert.deepEqual(legacyReport.traces[0], { initial: { x: 0, y: 0 }, trace: legacyReport.trace, traceStatus: legacyReport.traceStatus });
 });
-
-const { traceInputsForLevel: getTraceInputs } = await import(
-  `data:text/javascript;base64,${Buffer.from(engineSource).toString('base64')}`
-);
 
 test('a true precondition checks all 4225 initial states while running only representative traces', () => {
   let transitions = 0;

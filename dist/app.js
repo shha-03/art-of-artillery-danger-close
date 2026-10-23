@@ -2,29 +2,29 @@ import { parseExpression, evaluate, initialStatesForLevel, traceInputsForLevel, 
 import { LEVELS, CHAPTERS } from './levels.js';
 import { LANGUAGE_STORAGE_KEY, resolveLanguage, translate } from './i18n.js';
 import { applyStaticTranslations } from './ui-copy.js';
+import { UNIT_TYPES, unitPoints, unitSymbol } from './unit-types.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const key = p => `${p.x},${p.y}`;
 const pad = n => String(n).padStart(2, '0');
 const point = p => p ? `(${p.x}, ${p.y})` : '—';
-const unitIcons = {
-  enemy: '<img class="unit-icon" src="./unit-hostile.svg" width="48" height="48" alt="" aria-hidden="true" draggable="false">',
-  friendly: '<img class="unit-icon" src="./unit-friendly.svg" width="48" height="48" alt="" aria-hidden="true" draggable="false">'
-};
 let levelIndex = 0, selectedInitialIndex = 0, battle, lastAnalysis = null, records = [], selectedTargets = new Set();
 let browsingChapter = CHAPTERS[0].id;
 let traceInputs = [], allowedInputCount = 0;
 let preview = true, traceVisible = false, busy = false, sound = false, audioContext = null;
 let witness = null, impacts = [], hintCount = 1, turnToken = 0, toastTimer;
-const BEST_STORAGE_KEY = 'danger-close-best-math-v2';
-let best = {};
-try {
-  const savedBest = JSON.parse(localStorage.getItem(BEST_STORAGE_KEY) || '{}');
-  if (savedBest && typeof savedBest === 'object' && !Array.isArray(savedBest)) {
-    best = Object.fromEntries(LEVELS.filter(l=>Number.isSafeInteger(savedBest[l.id])).map(l=>[l.id,savedBest[l.id]]));
-  }
-} catch {}
+const BEST_STORAGE_KEY = 'danger-close-best-branches-v1';
+const LEGACY_BEST_STORAGE_KEY = 'danger-close-best-math-v2';
+function readBestScores(storageKey) {
+  try {
+    const saved=JSON.parse(localStorage.getItem(storageKey)||'{}');
+    if(saved&&typeof saved==='object'&&!Array.isArray(saved))return Object.fromEntries(LEVELS.filter(l=>Number.isSafeInteger(saved[l.id])).map(l=>[l.id,saved[l.id]]));
+  }catch{}
+  return {};
+}
+let best=readBestScores(BEST_STORAGE_KEY);
+const legacyBest=readBestScores(LEGACY_BEST_STORAGE_KEY);
 let savedLanguage;
 try { savedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY); } catch {}
 let language = resolveLanguage(savedLanguage, navigator.languages || [navigator.language]);
@@ -33,8 +33,18 @@ const t = (key, parameters) => translate(language, key, parameters);
 const levelCopy = (l = level()) => language === 'en' ? l.en : l;
 const chapterCopy = chapter => language === 'en' ? chapter.en : chapter;
 const chapterLevels = id => LEVELS.map((mission, index) => ({ mission, index })).filter(({mission}) => mission.chapter === id);
-const completedCount = missions => missions.filter(mission => best[mission.id] !== undefined).length;
-const missionStatus = mission => best[mission.id] !== undefined ? t('missionBest', {score:best[mission.id]}) : t('missionUnfinished');
+const isComplete = mission => best[mission.id] !== undefined || legacyBest[mission.id] !== undefined;
+const completedCount = missions => missions.filter(isComplete).length;
+const missionStatus = mission => {
+  const reports=[];
+  if(best[mission.id]!==undefined)reports.push(t('missionBest',{score:best[mission.id]}));
+  if(legacyBest[mission.id]!==undefined)reports.push(t('legacyBest',{score:legacyBest[mission.id]}));
+  return reports.join(' · ')||t('missionUnfinished');
+};
+const missionBadge = mission => best[mission.id]!==undefined?`✓ ${best[mission.id]} PT`:legacyBest[mission.id]!==undefined?t('legacyBadge',{score:legacyBest[mission.id]}):'↗';
+const branchName = unit => {const branch=UNIT_TYPES[unit?.branch];return branch?(language==='en'?branch.en.name:branch.name):t('untypedUnit');};
+const signedUnitPoints = (unit,affiliation) => `${affiliation==='enemy'?'+':'−'}${unitPoints(unit)}`;
+const scoreBreakdown = () => t('scoreBreakdown',{enemyPoints:battle.enemyPoints,friendlyPoints:battle.friendlyPoints,remaining:battle.remaining,score:battle.score});
 
 function level() { return LEVELS[levelIndex]; }
 function flash(messageKey) {
@@ -72,7 +82,7 @@ function renderTabs() {
   $('chapter-difficulty').textContent=t('chapterDifficulty',{number:CHAPTERS.indexOf(chapter)+1,total:CHAPTERS.length});
   $('campaign-progress').textContent=t('campaignProgress',{completed:completedCount(LEVELS),total:LEVELS.length});
   $('chapter-progress').textContent=t('chapterProgress',{completed:completedCount(missions.map(item=>item.mission)),total:missions.length});
-  $('mission-tabs').innerHTML = missions.map(({mission:l,index:i})=>`<button class="mission-tab ${i===levelIndex?'active':''}" data-level="${i}" ${busy?'disabled':''} aria-current="${i===levelIndex?'step':'false'}" aria-label="${esc(t('missionChoice',{number:i+1,name:levelCopy(l).name,status:missionStatus(l)}))}"><span class="mission-index">${pad(i+1)}</span><span class="mission-name">${esc(levelCopy(l).name)}<small>${esc(levelCopy(l).concept)}</small></span><span class="mission-check">${best[l.id]!==undefined?`✓ ${best[l.id]} PT`:'↗'}</span></button>`).join('');
+  $('mission-tabs').innerHTML = missions.map(({mission:l,index:i})=>`<button class="mission-tab ${i===levelIndex?'active':''}" data-level="${i}" ${busy?'disabled':''} aria-current="${i===levelIndex?'step':'false'}" aria-label="${esc(t('missionChoice',{number:i+1,name:levelCopy(l).name,status:missionStatus(l)}))}"><span class="mission-index">${pad(i+1)}</span><span class="mission-name">${esc(levelCopy(l).name)}<small>${esc(levelCopy(l).concept)}</small></span><span class="mission-check">${esc(missionBadge(l))}</span></button>`).join('');
   $('current-round').textContent=t('currentRound',{number:pad(levelIndex+1),total:LEVELS.length,name:levelCopy().name});
   $('previous-round').disabled=busy||levelIndex===0;
   $('next-round').disabled=busy;
@@ -86,7 +96,7 @@ function renderOverview() {
   $('overview-progress').textContent=t('campaignProgress',{completed:completedCount(LEVELS),total:LEVELS.length});
   $('campaign-chapters').innerHTML=CHAPTERS.map(chapter=>{
     const missions=chapterLevels(chapter.id), copy=chapterCopy(chapter);
-    return `<section class="overview-chapter" aria-labelledby="overview-chapter-${chapter.id}"><div class="overview-chapter-heading"><h3 id="overview-chapter-${chapter.id}"><span>${pad(chapter.id)}</span>${esc(copy.name)}</h3><span>${esc(t('chapterProgress',{completed:completedCount(missions.map(item=>item.mission)),total:missions.length}))}</span></div><p>${esc(copy.description)}</p><div class="overview-grid">${missions.map(({mission,index})=>`<button class="overview-mission ${index===levelIndex?'is-current':''} ${best[mission.id]!==undefined?'is-complete':''}" data-level="${index}" aria-current="${index===levelIndex?'step':'false'}" ${busy?'disabled':''}><span class="overview-number">${pad(index+1)}</span><span class="overview-name">${esc(levelCopy(mission).name)}</span><small>${esc(levelCopy(mission).concept)}</small><span class="overview-status">${index===levelIndex?`${esc(t('currentMission'))} · `:''}${esc(missionStatus(mission))}</span></button>`).join('')}</div></section>`;
+    return `<section class="overview-chapter" aria-labelledby="overview-chapter-${chapter.id}"><div class="overview-chapter-heading"><h3 id="overview-chapter-${chapter.id}"><span>${pad(chapter.id)}</span>${esc(copy.name)}</h3><span>${esc(t('chapterProgress',{completed:completedCount(missions.map(item=>item.mission)),total:missions.length}))}</span></div><p>${esc(copy.description)}</p><div class="overview-grid">${missions.map(({mission,index})=>`<button class="overview-mission ${index===levelIndex?'is-current':''} ${isComplete(mission)?'is-complete':''}" data-level="${index}" aria-current="${index===levelIndex?'step':'false'}" ${busy?'disabled':''}><span class="overview-number">${pad(index+1)}</span><span class="overview-name">${esc(levelCopy(mission).name)}</span><small>${esc(levelCopy(mission).concept)}</small><span class="overview-status">${index===levelIndex?`${esc(t('currentMission'))} · `:''}${esc(missionStatus(mission))}</span></button>`).join('')}</div></section>`;
   }).join('');
 }
 function showOverview() {
@@ -117,7 +127,7 @@ function renderInitialInputs() {
 function renderMap() {
   const l=level(), candidates=previewCandidates(), candidateSet=new Set(candidates.map(key));
   const goal=expression($('goal-input').value), guard=expression(l.guardSource);
-  const enemies=new Set(battle.enemies.map(key)), allies=new Set(battle.allies.map(key));
+  const enemies=new Map(battle.enemies.map(unit=>[key(unit),unit])), allies=new Map(battle.allies.map(unit=>[key(unit),unit]));
   const hitMap=new Map(battle.hit.map(p=>[key(p),p])), impactSet=new Set(impacts.map(key));
   const cells=['<span class="axis-label axis-corner">Y / X</span>'];
   for(let x=0;x<l.size;x++)cells.push(`<span class="axis-label">${x}</span>`);
@@ -127,8 +137,11 @@ function renderMap() {
       const p={x,y}, k=key(p), hit=hitMap.get(k), type=enemies.has(k)?'enemy':allies.has(k)?'friendly':'neutral';
       const terminal=!matches(guard,p), objective=matches(goal,p);
       const classes=['cell',type,terminal?'terminal':'',preview&&candidateSet.has(k)?'candidate':'',preview&&key(candidates[0]||{})===k?'next-target':'',objective?'objective':'',hit?'hit':'',impactSet.has(k)?'impact':'',witness&&key(witness)===k?'witness':''].filter(Boolean).join(' ');
-      const content=hit?`<span class="crater ${esc(hit.type||'neutral')}">×</span>`:(unitIcons[type]||'<span class="neutral-dot"></span>');
-      const labelParams={x,y,unit:t(hit?'hit':type),objective:objective?t('objectiveSuffix'):''};
+      const unit=hit||enemies.get(k)||allies.get(k), affiliation=hit?.type||type;
+      const isUnit=affiliation==='enemy'||affiliation==='friendly';
+      const content=hit?`<span class="crater ${esc(hit.type||'neutral')}">×</span>`:isUnit?`${unitSymbol(affiliation,unit.branch)}<span class="unit-points ${affiliation}" aria-hidden="true">${signedUnitPoints(unit,affiliation)}</span>`:'<span class="neutral-dot"></span>';
+      const unitLabel=isUnit?t('unitDescription',{affiliation:t(affiliation),branch:branchName(unit),points:signedUnitPoints(unit,affiliation)}):t('neutral');
+      const labelParams={x,y,unit:hit?t('struckUnit',{unit:unitLabel}):unitLabel,objective:objective?t('objectiveSuffix'):''};
       cells.push(`<button class="${classes}" data-cell="${x},${y}" aria-label="${esc(t('cellLabel',labelParams))}" aria-pressed="${objective?'true':'false'}" title="${esc(t('cellTitle',labelParams))}" ${busy?'disabled':''}>${content}<span class="cell-coordinate">${x},${y}</span>${objective?'<span class="target-reticle"></span>':''}</button>`);
     }
   }
@@ -147,11 +160,24 @@ function renderMap() {
   $('map-status').textContent = battle.finished ? t(battle.cleared?'mapCleared':'mapEnded') : candidates.length?t('mapCandidates',{count:candidates.length,point:point(candidates[0]),status:t(lastAnalysis?.valid?'verified':'pending')}):t('noCandidates');
   $('preview-button').classList.toggle('active',preview); $('preview-button').setAttribute('aria-pressed',String(preview));
   $('trace-button').classList.toggle('active',traceVisible); $('trace-button').setAttribute('aria-pressed',String(traceVisible));
+  renderUnitRoster();
+}
+function renderUnitRoster() {
+  $('branch-legend').innerHTML=Object.entries(UNIT_TYPES).map(([branch,type])=>`<span class="branch-legend-item" role="listitem">${unitSymbol('enemy',branch,'branch-symbol')}<span>${esc(t('branchValue',{branch:branchName({branch}),points:type.points}))}</span></span>`).join('');
+  $('roster-totals').textContent=t('rosterTotals',{enemyPoints:battle.enemies.reduce((sum,unit)=>sum+unitPoints(unit),0),friendlyPoints:battle.allies.reduce((sum,unit)=>sum+unitPoints(unit),0)});
+  const hits=new Set(battle.hit.map(key));
+  $('roster-content').innerHTML=[['enemy',level().enemies],['friendly',level().allies]].map(([affiliation,units])=>`<section class="roster-side ${affiliation}"><h3>${esc(t(affiliation))}</h3><ul>${units.map(unit=>{
+    const struck=hits.has(key(unit));
+    const status=struck?t(affiliation==='enemy'?'rosterEliminated':'rosterLost'):affiliation==='enemy'?t('rosterShotRank',{rank:unit.targetingRisk.shotRank}):t('rosterFriendly');
+    return `<li class="roster-unit ${struck?'is-struck':''}">${unitSymbol(affiliation,unit.branch,'roster-symbol')}<span class="roster-identity"><strong>${esc(branchName(unit))}</strong><code>${point(unit)}</code></span><b class="roster-value">${signedUnitPoints(unit,affiliation)}</b><small>${esc(status)}</small></li>`;
+  }).join('')}</ul></section>`).join('');
 }
 function renderStats() {
   $('remaining-stat').textContent=pad(battle.remaining); $('budget-stat').textContent=`/ ${pad(battle.budget)}`;
   $('kills-stat').textContent=pad(battle.enemyKills); $('enemies-stat').textContent=`/ ${pad(level().enemies.length)}`;
   $('score-stat').textContent=battle.score;
+  $('score-breakdown').textContent=scoreBreakdown();
+  $('friendly-loss-count').textContent=t('friendlyCount',{count:battle.friendlyKills});
   const disabled=busy||battle.finished||!$('goal-input').value.trim()||!$('invariant-input').value.trim();
   $('single-button').disabled=disabled; $('salvo-button').disabled=disabled;
   $('restart-button').disabled=busy; $('invariant-input').disabled=busy||battle.finished; $('goal-input').disabled=busy||battle.finished;
@@ -175,7 +201,9 @@ function witnessReport(analysis) {
   return t(initial?'initialWitness':'preservationWitness',{before:point(check.before),after:point(check.after),outside:check.outsideDomain?t('outsideDomain'):''});
 }
 function shotReport(event) {
-  return {mode:t(event.mode),count:event.shots.length,enemy:event.shots.filter(s=>s.type==='enemy').length,friendly:event.shots.filter(s=>s.type==='friendly').length,neutral:event.shots.filter(s=>s.type==='neutral').length};
+  const enemies=event.shots.filter(shot=>shot.type==='enemy'),friendlies=event.shots.filter(shot=>shot.type==='friendly');
+  const points=shots=>shots.reduce((sum,shot)=>sum+(shot.points??unitPoints(shot)),0);
+  return {mode:t(event.mode),count:event.shots.length,enemy:enemies.length,friendly:friendlies.length,neutral:event.shots.filter(s=>s.type==='neutral').length,enemyPoints:points(enemies),friendlyPoints:points(friendlies)};
 }
 function renderFeedback() {
   const f=feedbackState;
@@ -279,6 +307,7 @@ function renderResult() {
   $('result-title').textContent=t(clear?(battle.friendlyKills?'resultFriendly':'resultClean'):'resultFailed');
   $('result-copy').textContent=clear?t('resultClear',{name:levelCopy().name,instruction:t(battle.friendlyKills?'resultImprove':'resultBonus')}):t('resultRetry');
   $('result-score').textContent=battle.score;
+  $('result-breakdown').textContent=scoreBreakdown();
   $('result-stats').innerHTML=`<div><strong>${battle.enemyKills}</strong><span>${esc(t('enemyKills'))}</span></div><div><strong>${battle.friendlyKills}</strong><span>${esc(t('friendlyLosses'))}</span></div><div><strong>${battle.remaining}</strong><span>${esc(t('remaining'))}</span></div>`;
   $('result-next').textContent=t(levelIndex<LEVELS.length-1?'nextMission':'campaignOverview');
 }

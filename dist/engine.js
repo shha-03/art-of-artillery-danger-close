@@ -1,3 +1,5 @@
+import { UNIT_TYPES, unitPoints } from './unit-types.js';
+
 /**
  * Danger Close: a dependency-free, finite-state invariant checker.
  *
@@ -52,6 +54,7 @@ const ERROR_MESSAGES = {
     'invalid-layout': () => '배치 형식 오류. 좌표 배열이 필요하다.',
     'offboard-unit': () => '배치 좌표 오류. 전장 안의 정수 좌표가 필요하다.',
     'duplicate-unit': () => '배치 중복. 한 좌표에 여러 유닛을 배치할 수 없다.',
+    'invalid-unit-branch': (p) => `미지원 병과 '${p.branch}' 확인. 등록된 병과를 지정하라.`,
     'invalid-command-budget': () => '명령 횟수 오류. 0 이상의 정수가 필요하다.',
     'invalid-mode': () => '사격 방식 오류. single 또는 salvo를 지정하라.',
     'unexpected-error': (p) => p.detail || '알 수 없는 실행 오류. 오류 내용을 확인하라.',
@@ -87,6 +90,7 @@ const ERROR_MESSAGES = {
     'invalid-layout': () => 'Deployment format invalid. Supply an array of coordinates.',
     'offboard-unit': () => 'Deployment coordinates invalid. Use integer coordinates inside the board.',
     'duplicate-unit': () => 'Deployment conflict. Assign only one unit to each coordinate.',
+    'invalid-unit-branch': (p) => `Unsupported unit branch '${p.branch}'. Select a registered branch.`,
     'invalid-command-budget': () => 'Command budget invalid. Use a nonnegative integer.',
     'invalid-mode': () => 'Fire mode invalid. Select single or salvo.',
     'unexpected-error': (p) => p.detail || 'Unknown execution error. Inspect the error report.',
@@ -277,6 +281,7 @@ export function evaluate(ast, state) {
 }
 
 const point = ({ x, y }) => ({ x, y });
+const unitCopy = (unit) => ({ ...point(unit), ...(unit.branch === undefined ? {} : { branch: unit.branch }) });
 const key = ({ x, y }) => `${x},${y}`;
 const inDomain = (s) => s && Number.isInteger(s.x) && Number.isInteger(s.y)
   && s.x >= DOMAIN.min && s.x <= DOMAIN.max && s.y >= DOMAIN.min && s.y <= DOMAIN.max;
@@ -459,17 +464,20 @@ function copyUnits(units, size, occupied) {
   if (!Array.isArray(units)) throw engineError('invalid-layout', {}, TypeError);
   return units.map((unit) => {
     if (!inDomain(unit) || !onBoard(unit, size)) throw engineError('offboard-unit', {}, TypeError);
+    if (unit.branch !== undefined && (typeof unit.branch !== 'string' || !Object.hasOwn(UNIT_TYPES, unit.branch))) {
+      throw engineError('invalid-unit-branch', { branch: String(unit.branch) }, TypeError);
+    }
     const location = key(unit);
     if (occupied.has(location)) throw engineError('duplicate-unit', {}, TypeError);
     occupied.add(location);
-    return point(unit);
+    return unitCopy(unit);
   });
 }
 
 function updateBattleStatus(battle) {
   battle.cleared = battle.enemies.length === 0;
   battle.finished = battle.cleared || battle.remaining === 0;
-  battle.score = battle.enemyKills - battle.friendlyKills + battle.remaining;
+  battle.score = battle.enemyPoints - battle.friendlyPoints + battle.remaining;
   return battle;
 }
 
@@ -486,8 +494,8 @@ export function createBattle(level) {
     ...level,
     initial: point(traceInputs[0]),
     traceInputs: traceInputs.map(point),
-    enemies: enemies.map(point),
-    allies: allies.map(point),
+    enemies: enemies.map(unitCopy),
+    allies: allies.map(unitCopy),
   };
   // Keep the precondition as the source of truth. Adding its enumerated states
   // would create two conflicting initial-input definitions on the next order.
@@ -502,6 +510,8 @@ export function createBattle(level) {
     hit: [],
     enemyKills: 0,
     friendlyKills: 0,
+    enemyPoints: 0,
+    friendlyPoints: 0,
   });
 }
 
@@ -514,7 +524,7 @@ export function createBattle(level) {
  * the firing list; they are never removed from the proof region S.
  */
 export function order(battle, invariantSource, goalSource, mode = 'single') {
-  const outcome = (fields) => ({ battle, analysis: null, shots: [], dud: false, cost: 0, ...fields });
+  const outcome = (fields) => ({ battle, analysis: null, shots: [], enemyPoints: 0, friendlyPoints: 0, dud: false, cost: 0, ...fields });
   if (mode !== 'single' && mode !== 'salvo') {
     return outcome({ ...errorDetails(engineError('invalid-mode', { mode })), reason: 'invalid-mode' });
   }
@@ -529,8 +539,8 @@ export function order(battle, invariantSource, goalSource, mode = 'single') {
   });
   const next = {
     ...battle,
-    enemies: battle.enemies.map(point),
-    allies: battle.allies.map(point),
+    enemies: battle.enemies.map(unitCopy),
+    allies: battle.allies.map(unitCopy),
     hit: battle.hit.map((hit) => ({ ...hit })),
   };
   if (!analysis.valid) {
@@ -538,21 +548,30 @@ export function order(battle, invariantSource, goalSource, mode = 'single') {
     return outcome({ battle: updateBattleStatus(next), analysis, dud: true, cost: 1, reason: 'invalid-invariant' });
   }
   const hit = new Set(battle.hit.map(key));
-  const enemies = new Set(battle.enemies.map(key));
-  const allies = new Set(battle.allies.map(key));
+  const enemies = new Map(battle.enemies.map((unit) => [key(unit), unit]));
+  const allies = new Map(battle.allies.map((unit) => [key(unit), unit]));
   const classify = (cell) => enemies.has(key(cell)) ? 'enemy' : allies.has(key(cell)) ? 'friendly' : 'neutral';
   const priority = { neutral: 0, friendly: 1, enemy: 2 };
   const candidates = analysis.candidates.filter((cell) => !hit.has(key(cell)))
-    .map((cell) => ({ ...cell, type: classify(cell) }))
+    .map((cell) => {
+      const unit = enemies.get(key(cell)) ?? allies.get(key(cell));
+      return { ...unitCopy(unit ?? cell), type: classify(cell), points: unit ? unitPoints(unit) : 0 };
+    })
     .sort((a, b) => priority[a.type] - priority[b.type] || a.x - b.x || a.y - b.y);
   if (!candidates.length) return outcome({ analysis, reason: 'no-candidates' });
   const shots = mode === 'single' ? candidates.slice(0, 1) : candidates;
   const shotKeys = new Set(shots.map(key));
   next.remaining--;
-  next.enemyKills += shots.filter((shot) => shot.type === 'enemy').length;
-  next.friendlyKills += shots.filter((shot) => shot.type === 'friendly').length;
+  const enemyShots = shots.filter((shot) => shot.type === 'enemy');
+  const friendlyShots = shots.filter((shot) => shot.type === 'friendly');
+  const enemyPoints = enemyShots.reduce((sum, shot) => sum + shot.points, 0);
+  const friendlyPoints = friendlyShots.reduce((sum, shot) => sum + shot.points, 0);
+  next.enemyKills += enemyShots.length;
+  next.friendlyKills += friendlyShots.length;
+  next.enemyPoints += enemyPoints;
+  next.friendlyPoints += friendlyPoints;
   next.enemies = next.enemies.filter((unit) => !shotKeys.has(key(unit)));
   next.allies = next.allies.filter((unit) => !shotKeys.has(key(unit)));
   next.hit.push(...shots.map((shot) => ({ ...shot })));
-  return outcome({ battle: updateBattleStatus(next), analysis, shots, cost: 1, reason: 'fired' });
+  return outcome({ battle: updateBattleStatus(next), analysis, shots, enemyPoints, friendlyPoints, cost: 1, reason: 'fired' });
 }

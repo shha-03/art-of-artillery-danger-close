@@ -130,7 +130,7 @@ for (const level of LEVELS.filter((level) => SPECIFICATIONS[level.id])) {
     assert.ok(level.allies.some((ally) => candidates.has(key(ally))));
   });
 
-  test(`${level.id}: precise targeting scores six for three singles or eight for one salvo`, () => {
+  test(`${level.id}: weighted targets score fifteen for three singles or seventeen for one salvo`, () => {
     let singleBattle = createBattle(level);
     assert.equal(singleBattle.remaining, 6);
     for (let index = 0; index < 3; index++) {
@@ -145,7 +145,7 @@ for (const level of LEVELS.filter((level) => SPECIFICATIONS[level.id])) {
     assert.equal(singleBattle.enemyKills, 3);
     assert.equal(singleBattle.friendlyKills, 0);
     assert.equal(singleBattle.remaining, 3);
-    assert.equal(singleBattle.score, 6);
+    assert.equal(singleBattle.score, 15);
 
     const salvo = order(createBattle(level), level.solution, level.goalSolution, 'salvo');
     assert.equal(salvo.reason, 'fired');
@@ -156,7 +156,7 @@ for (const level of LEVELS.filter((level) => SPECIFICATIONS[level.id])) {
     assert.equal(salvo.battle.enemyKills, 3);
     assert.equal(salvo.battle.friendlyKills, 0);
     assert.equal(salvo.battle.remaining, 5);
-    assert.equal(salvo.battle.score, 8);
+    assert.equal(salvo.battle.score, 17);
   });
 }
 

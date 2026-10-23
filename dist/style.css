@@ -518,6 +518,39 @@ html[lang="en"] .fire-button small { font-size: 9px; line-height: 1.5; white-spa
 .overview-mission > small { color: var(--muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .overview-status { margin-top: auto; padding-top: 6px; color: var(--faint); font-size: 9px; line-height: 1.5; }
 .overview-mission.is-complete .overview-status { color: var(--sage); }
+.cell .unit-icon { transform: translateY(-2px); }
+.unit-points { position: absolute; z-index: 5; right: 3px; bottom: 2px; padding: 1px 3px; border: 1px solid transparent; border-radius: 2px; font-family: var(--mono); font-size: clamp(8px, .85vw, 11px); font-weight: 700; line-height: 1.1; pointer-events: none; }
+.unit-points.enemy { color: #ffd0d0; background: #491d23; border-color: #a45355; }
+.unit-points.friendly { color: #d1e6ff; background: #1c334b; border-color: #547a9d; }
+.branch-legend-block { display: flex; flex-wrap: wrap; align-items: center; gap: 9px 16px; padding: 10px 20px; border-top: 1px solid var(--line-soft); }
+.branch-legend-label { color: var(--faint); font-size: 10px; }
+.branch-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.branch-legend-item { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; }
+.branch-symbol { flex: 0 0 23px; width: 23px; height: 23px; }
+.branch-legend-block > small { color: var(--faint); font-size: 9px; }
+.unit-roster { padding: 0 20px; border-top: 1px solid var(--line-soft); background: #1c231b; }
+.unit-roster > summary { min-height: 44px; padding: 12px 0; color: var(--cream); font-size: 11px; cursor: pointer; }
+.unit-roster > summary::marker { color: var(--orange); }
+.unit-roster > summary > span:first-child { margin-left: 5px; font-weight: 600; }
+.unit-roster > summary > span:last-child { float: right; margin-left: 10px; color: var(--muted); font-size: 10px; }
+.unit-roster > summary:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.roster-content { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; padding-top: 4px; }
+.roster-side { min-width: 0; }
+.roster-side h3 { margin: 0 0 7px; color: var(--muted); font-size: 10px; font-weight: 600; }
+.roster-side ul { margin: 0; padding: 0; list-style: none; }
+.roster-unit { display: grid; grid-template-columns: 29px minmax(0, 1fr) auto; align-items: center; gap: 3px 8px; padding: 9px 0; border-top: 1px solid var(--line-soft); }
+.roster-symbol { width: 29px; height: 29px; }
+.roster-identity { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 7px; min-width: 0; }
+.roster-identity strong { color: var(--cream); font-size: 11px; font-weight: 500; }
+.roster-identity code { color: var(--muted); font-family: var(--mono); font-size: 10px; }
+.roster-value { color: var(--cream); font-family: var(--mono); font-size: 12px; font-weight: 600; }
+.roster-unit > small { grid-column: 2 / -1; color: var(--faint); font-size: 9px; line-height: 1.5; }
+.roster-unit.is-struck .roster-symbol, .roster-unit.is-struck .roster-identity, .roster-unit.is-struck .roster-value { opacity: .45; }
+.roster-help { margin: 10px 0 0; padding: 0 0 14px; color: var(--muted); font-size: 10px; line-height: 1.7; }
+.score-detail { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin: -11px 0 20px; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.score-detail p { margin: 0; color: var(--sage); }
+.score-detail > span { color: var(--faint); }
+.result-breakdown { margin: 14px 0 0; color: var(--sage); font-family: var(--mono); font-size: 12px; line-height: 1.7; }
 @media (max-width: 900px) {
   .campaign-toolbar { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; }
   .campaign-progress { grid-column: 1 / -1; grid-row: 2; flex-direction: row; align-items: baseline; justify-content: space-between; }
@@ -547,4 +580,17 @@ html[lang="en"] .fire-button small { font-size: 9px; line-height: 1.5; white-spa
   .overview-chapter-heading h3 { font-size: 14px; }
   .overview-mission { padding: 10px; }
   .overview-name { font-size: 11px; }
+  .unit-points { right: 1px; bottom: 1px; padding: 1px 2px; border-width: 0; font-size: 8px; }
+  .branch-legend-block { gap: 6px 10px; padding: 9px 12px; }
+  .branch-legend { gap: 7px 12px; }
+  .branch-legend-item { gap: 4px; font-size: 9px; }
+  .branch-symbol { width: 21px; height: 21px; flex-basis: 21px; }
+  .unit-roster { padding: 0 12px; }
+  .unit-roster > summary > span:last-child { float: none; display: block; margin: 3px 0 0 17px; font-size: 9px; }
+  .roster-content { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .roster-unit { grid-template-columns: 26px minmax(0, 1fr) auto; }
+  .roster-symbol { width: 26px; height: 26px; }
+  .roster-unit > small { font-size: 9px; }
+  .score-detail { margin-bottom: 16px; font-size: 9px; }
+  .result-breakdown { font-size: 11px; }
 }
