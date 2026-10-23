@@ -48,3 +48,37 @@ test('static UI and accessibility bindings have matching Korean and English tran
     assert.doesNotMatch(UI_COPY.en[key], /[가-힣]/, key);
   }
 });
+
+test('initialized-program instructions distinguish universal inputs, test windows, and representative battlefields', () => {
+  for (const locale of ['ko', 'en']) {
+    const scope = translate(locale, 'externalScope', { count: 81 });
+    assert.match(scope, /81/);
+    assert.match(scope, /342,225/);
+    assert.match(COPY[locale].externalInputs, /a, b/);
+    assert.match(COPY[locale].externalInputs, /ℤ²/);
+    assert.match(UI_COPY[locale]['manual.scopeBody'], /81/);
+    assert.match(UI_COPY[locale]['manual.scopeBody'], /4,225/);
+    assert.match(UI_COPY[locale]['manual.syntax'], /a, b, n, m/);
+    for (const key of ['battlefieldInputs', 'battlefieldInputsHelp', 'initializedState', 'inputContext', 'proofRequiredTitle', 'proofRequiredBody', 'provedTitle', 'provedBody']) {
+      assert.ok(COPY[locale][key]?.trim(), `${locale}: ${key}`);
+    }
+  }
+  assert.match(COPY.ko.goalPassed, /무한 정수 전체의 증명은 아니다/);
+  assert.match(COPY.en.goalPassed, /not a proof over unbounded integers/);
+  assert.match(COPY.ko.proofRequiredBody, /0이어도/);
+  assert.match(COPY.en.proofRequiredBody, /zero orders/);
+});
+
+test('the HTML exposes initialization and a read-only mathematical goal before JavaScript loads', () => {
+  const html = readFileSync(new URL('./dist/index.html', import.meta.url), 'utf8');
+  assert.ok(html.indexOf('id="initialization-code"') < html.indexOf('id="program-code"'));
+  const goal = html.match(/<textarea\b[^>]*id="goal-input"[^>]*>/)?.[0];
+  assert.ok(goal);
+  assert.match(goal, /\breadonly\b/);
+  assert.match(goal, /aria-readonly="true"/);
+  assert.match(html.match(/<button\b[^>]*id="target-enemies"[^>]*>/)?.[0] ?? '', /\bhidden\b/);
+  for (const key of ['manual.step1Body', 'manual.scopeBody', 'manual.reachability']) {
+    assert.ok(html.includes(UI_COPY.ko[key]), `${key}: Korean fallback matches translated copy`);
+  }
+  assert.doesNotMatch(html, /적군 좌표를 클릭해|지도에서 표적을 지정하거나/);
+});

@@ -1,10 +1,51 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Script, createContext } from 'node:vm';
-import { LEVELS } from './dist/levels.js';
-import { DOMAIN, analyze, createBattle, evaluate, initialStatesForLevel, order, parseExpression } from './dist/engine.js';
+import { LEVELS as CAMPAIGN_LEVELS } from './dist/levels.js';
+import { BASIC_LEVELS } from './dist/levels-basic.js';
+import { ADVANCED_LEVELS } from './dist/levels-advanced.js';
+import { DOMAIN, analyze, battlefieldCasesForLevel, createBattle, evaluate, initialStatesForLevel, isInitializedLevel, order, parseExpression } from './dist/engine.js';
 import { computeRefinementRisks } from './dist/refinement-risk.js';
 import { unitPoints, withUnitBranches } from './dist/unit-types.js';
+
+// Keep the previous finite-entry campaigns as regression fixtures. Their
+// hard-coded examples are not exposed as the new initialized campaign.
+const LEGACY_FIXTURES = [
+  { id:'01', initialStates:[{x:2,y:2},{x:4,y:2},{x:6,y:2}], guardSource:'x > 0',
+    step:({x,y})=>({x:x-1,y:y+1}), code:'while (x > 0) { x = x - 1; y = y + 1; }',
+    enemies:[{x:0,y:4},{x:0,y:6},{x:0,y:8}], allies:[{x:0,y:3},{x:0,y:5},{x:0,y:7}],
+    starter:'x >= 0 && y >= 0 && x + y <= 8',
+    solution:'x >= 0 && y >= 0 && (x + y == 4 || x + y == 6 || x + y == 8)',
+    goalSolution:'x == 0 && (y == 4 || y == 6 || y == 8)' },
+  { id:'02', initialStates:[{x:5,y:0},{x:6,y:0},{x:8,y:0}], guardSource:'x >= 3',
+    step:({x,y})=>({x:x-3,y:y+1}), code:'while (x >= 3) { x = x - 3; y = y + 1; }',
+    enemies:[{x:0,y:2},{x:2,y:1},{x:2,y:2}], allies:[{x:0,y:1},{x:1,y:1},{x:1,y:2}],
+    starter:'x >= 0 && y >= 0 && x + 3 * y <= 8',
+    solution:'x >= 0 && y >= 0 && (x + 3 * y == 5 || x + 3 * y == 6 || x + 3 * y == 8)',
+    goalSolution:'(x == 0 && y == 2) || (x == 2 && y == 1) || (x == 2 && y == 2)' },
+  { id:'03', initialStates:[{x:1,y:0},{x:2,y:0},{x:3,y:0}], guardSource:'x > 0',
+    step:({x,y})=>({x:x-1,y:y+x}), code:'while (x > 0) { y = y + x; x = x - 1; }',
+    enemies:[{x:0,y:1},{x:0,y:3},{x:0,y:6}], allies:[{x:0,y:2},{x:0,y:4},{x:0,y:5}],
+    starter:'x >= 0 && y >= 0 && x * (x + 1) + 2 * y <= 12',
+    solution:'x >= 0 && y >= 0 && (x * (x + 1) + 2 * y == 2 || x * (x + 1) + 2 * y == 6 || x * (x + 1) + 2 * y == 12)',
+    goalSolution:'x == 0 && (y == 1 || y == 3 || y == 6)' },
+  { id:'04', initialStates:[{x:2,y:0},{x:5,y:0},{x:8,y:0}], guardSource:'x >= 2 * y + 1',
+    step:({x,y})=>({x:x-(2*y+1),y:y+1}), code:'while (x >= 2 * y + 1) { x = x - (2 * y + 1); y = y + 1; }',
+    enemies:[{x:1,y:1},{x:1,y:2},{x:4,y:2}], allies:[{x:0,y:1},{x:2,y:1},{x:2,y:2}],
+    starter:'x >= 0 && y >= 0 && x + y * y <= 8',
+    solution:'x >= 0 && y >= 0 && (x + y * y == 2 || x + y * y == 5 || x + y * y == 8)',
+    goalSolution:'(x == 1 && y == 1) || (x == 1 && y == 2) || (x == 4 && y == 2)' },
+  { id:'05', initialCondition:'true', traceInputs:[{x:6,y:3},{x:-5,y:2},{x:2,y:-3}],
+    guardSource:'x < 0 || x >= 3 || y != 0',
+    step:({x,y})=>({x:x<0?x+3:x>=3?x-3:x,y:y<0?y+1:y>0?y-1:y}),
+    code:'while (x < 0 || x >= 3 || y != 0) { if (x < 0) x += 3; else if (x >= 3) x -= 3; if (y < 0) y++; else if (y > 0) y--; }',
+    enemies:[{x:0,y:0},{x:1,y:0},{x:2,y:0}], allies:[{x:0,y:1},{x:1,y:2},{x:3,y:0}],
+    starter:'x >= 0 && y >= 0', solution:'true', goalSolution:'x >= 0 && x < 3 && y == 0' },
+];
+const LEVELS = [...LEGACY_FIXTURES, ...BASIC_LEVELS, ...ADVANCED_LEVELS].map(source => {
+  const level = { size:9, commands:6, ...source };
+  return withUnitBranches(level, computeRefinementRisks(level));
+});
 
 const key = ({ x, y }) => `${x},${y}`;
 const keys = states => states.map(key).sort();
@@ -222,3 +263,102 @@ test('the unrestricted mission partitions all 4225 inputs and never infers risk 
   const guard = parseExpression(level.guardSource);
   assert.ok(level.allies.every(ally => evaluate(guard, ally)));
 });
+
+const initializedFixture = () => ({
+  id:'context-regression', size:9, commands:6,
+  initialize:({a,b})=>({x:Math.abs(a),y:Math.abs(b),n:Math.abs(a),m:Math.abs(b)}),
+  battleInputs:[{a:1,b:1},{a:-1,b:1},{a:2,b:0}],
+  guardSource:'x > 0', step:({x,y})=>({x:x-1,y:y+1}),
+  starter:'x >= 0 && x <= n && y >= m && x + y <= n + m + 1',
+  referenceInvariant:'x >= 0 && x <= n && y >= m && x + y <= n + m + 1',
+  solution:'x >= 0 && x <= n && y >= m && x + y == n + m',
+  goalSolution:'x == 0 && y == n + m',
+  enemies:[{x:0,y:2}], allies:[{x:0,y:0},{x:0,y:1},{x:0,y:3}],
+});
+
+function assertContextRegion(level, context) {
+  const predicate = parseExpression(context.coarseInvariant);
+  const guard = parseExpression(level.guardSource);
+  assert.equal(evaluate(predicate, { ...context.initial, ...context.parameters }), true);
+  for (let x=DOMAIN.min;x<=DOMAIN.max;x++) for (let y=DOMAIN.min;y<=DOMAIN.max;y++) {
+    const before={x,y,...context.parameters};
+    if (!evaluate(predicate,before) || !evaluate(guard,before)) continue;
+    const after={...level.step({...before}),...context.parameters};
+    assert.ok(after.x>=DOMAIN.min&&after.x<=DOMAIN.max&&after.y>=DOMAIN.min&&after.y<=DOMAIN.max);
+    assert.equal(evaluate(predicate,after),true,'every state in the contextual box must preserve it');
+  }
+  const exposed=level.allies.filter(ally=>evaluate(predicate,{...ally,...context.parameters})
+    &&!evaluate(guard,{...ally,...context.parameters}));
+  assert.deepEqual(keys(context.friendlies),keys(exposed));
+}
+
+test('initialized risk keeps input contexts separate and unions witnesses at a shared endpoint', () => {
+  const level=initializedFixture();
+  const risks=computeRefinementRisks(level);
+  assert.equal(risks.length,1);
+  const risk=risks[0];
+  assert.equal(risk.scope,'battlefield-contexts');
+  assert.equal(risk.initialCount,3);
+  assert.equal(risk.contexts.length,3);
+  assert.deepEqual(risk.contexts.map(context=>context.friendlies.length),[2,2,3]);
+  assert.equal(risk.friendlyCount,3,'one friendly coordinate is never counted twice');
+  assert.deepEqual(keys(risk.friendlies),['0,0','0,1','0,3']);
+  for(const context of risk.contexts) assertContextRegion(level,context);
+  const assigned=withUnitBranches(level,risks);
+  assert.deepEqual(assigned.enemies.map(unitPoints),[6]);
+  assert.equal(assigned.enemies.length,1,'three displayed inputs need not have three different results');
+  risks[0].contexts[0].parameters.n=99;
+  risks[0].contexts[0].friendlies[0].x=32;
+  assert.equal(assigned.enemies[0].targetingRisk.contexts[0].parameters.n,1);
+  assert.equal(assigned.enemies[0].targetingRisk.contexts[0].friendlies[0].x,0);
+});
+
+test('context risk is battlefield-scoped and does not falsely cover the complete verification input window', () => {
+  const level=initializedFixture();
+  const source=computeRefinementRisks(level)[0].coarseInvariant;
+  const report=analyze(source,level.goalSolution,level);
+  assert.equal(report.initial.checkedCount,81);
+  assert.equal(report.initial.pass,false,'the diagnostic formula deliberately guards its three raw inputs');
+  assert.equal(report.preservation.pass,true);
+});
+
+test('contextual reference validation rejects unreachable preservation failures and uninitialized predicates', () => {
+  const level=initializedFixture();
+  assert.throws(()=>computeRefinementRisks({...level,referenceInvariant:'x > 0'}),/preserved/);
+  assert.throws(()=>computeRefinementRisks({...level,referenceInvariant:'x == 0'}),/after initialization/);
+  assert.throws(()=>computeRefinementRisks({...level,referenceInvariant:'true'}),/verification window/);
+  assert.throws(()=>computeRefinementRisks({...level,referenceInvariant:'x + y'}),/predicates/);
+});
+
+for(const level of CAMPAIGN_LEVELS.filter(isInitializedLevel)) {
+  test(`${level.id}: risk uses all three visible contexts, their own parameters, and only terminal friendly witnesses`,()=>{
+    const risks=computeRefinementRisks(level);
+    assert.deepEqual(keys(risks),keys(level.enemies));
+    assert.equal(risks.reduce((sum,risk)=>sum+risk.initialCount,0),3);
+    const expectedInputs=battlefieldCasesForLevel(level).map(context=>`${context.a},${context.b}`).sort();
+    const actualInputs=[];
+    for(const risk of risks){
+      assert.equal(risk.scope,'battlefield-contexts');
+      assert.equal(risk.baselineSource,level.referenceInvariant??level.starter);
+      const witnesses=new Set();
+      for(const context of risk.contexts){
+        actualInputs.push(`${context.input.a},${context.input.b}`);
+        assertContextRegion(level,context);
+        context.friendlies.forEach(friend=>witnesses.add(key(friend)));
+        const guard=parseExpression(level.guardSource);
+        let state={...context.initial,...context.parameters};
+        const seen=new Set();
+        while(evaluate(guard,state)){
+          assert.ok(!seen.has(key(state)),'a displayed input must terminate');seen.add(key(state));
+          state={...level.step({...state}),...context.parameters};
+        }
+        assert.equal(key(state),key(risk),'only contexts actually reaching this enemy contribute');
+      }
+      assert.deepEqual(keys(risk.friendlies),[...witnesses].sort());
+      assert.equal(risk.friendlyCount,witnesses.size);
+      const assigned=level.enemies.find(enemy=>key(enemy)===key(risk));
+      assert.equal(unitPoints(assigned),risk.friendlyCount===0?2:risk.friendlyCount===1?4:6);
+    }
+    assert.deepEqual(actualInputs.sort(),expectedInputs);
+  });
+}

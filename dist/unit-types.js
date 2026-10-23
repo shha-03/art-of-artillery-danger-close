@@ -42,14 +42,17 @@ export function withUnitBranches(level, risks) {
   const branches = ['infantry', 'armor', 'artillery'];
   const key = ({ x, y }) => `${x},${y}`;
   if (!Array.isArray(level.enemies) || !Array.isArray(level.allies)
-    || level.enemies.length !== branches.length || level.allies.length !== branches.length) {
-    throw new TypeError('Campaign missions require three units per side.');
+    || level.enemies.length < 1 || level.enemies.length > branches.length || level.allies.length !== branches.length) {
+    throw new TypeError('Campaign missions require one to three unique enemies and three allies.');
   }
   if (!Array.isArray(risks) || risks.length !== level.enemies.length) {
     throw new TypeError('Every enemy requires one refinement-risk result.');
   }
   const enemyLocations = new Set(level.enemies.map(key));
   const allyLocations = new Set(level.allies.map(key));
+  if (allyLocations.size !== level.allies.length || [...allyLocations].some(location => enemyLocations.has(location))) {
+    throw new TypeError('Enemy and friendly coordinates must be distinct.');
+  }
   const riskByLocation = new Map();
   for (const risk of risks) {
     const location = key(risk);
@@ -68,11 +71,12 @@ export function withUnitBranches(level, risks) {
   if (enemyLocations.size !== level.enemies.length || riskByLocation.size !== enemyLocations.size) {
     throw new TypeError('Refinement-risk coordinates must match enemies exactly once.');
   }
+  const copyEvidence = value => Array.isArray(value) ? value.map(copyEvidence)
+    : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([name, item]) => [name, copyEvidence(item)]))
+      : value;
   const enemies = level.enemies.map(unit => {
     const { x, y, ...risk } = riskByLocation.get(key(unit));
-    return { ...unit, branch: branches[Math.min(risk.friendlyCount, 2)], targetingRisk: {
-      ...risk, friendlies: risk.friendlies.map(({ x, y }) => ({ x, y })), bounds: { ...risk.bounds },
-    } };
+    return { ...unit, branch: branches[Math.min(risk.friendlyCount, 2)], targetingRisk: copyEvidence(risk) };
   });
   const sortedAllies = [...level.allies].sort((a, b) => a.x - b.x || a.y - b.y);
   const allyBranches = new Map(sortedAllies.map((unit, index) => [key(unit), branches[index]]));

@@ -1,7 +1,7 @@
-import { parseExpression, evaluate, initialStatesForLevel, traceInputsForLevel, createBattle, order, formatEngineError } from './engine.js';
+import { parseExpression, evaluate, initialStatesForLevel, traceInputsForLevel, isInitializedLevel, projectPredicate, previewCandidatesForLevel, createBattle, order, formatEngineError } from './engine.js';
 import { LEVELS, CHAPTERS } from './levels.js';
 import { LANGUAGE_STORAGE_KEY, resolveLanguage, translate } from './i18n.js';
-import { applyStaticTranslations } from './ui-copy.js';
+import { applyStaticTranslations, UI_COPY } from './ui-copy.js';
 import { UNIT_TYPES, unitPoints, unitSymbol } from './unit-types.js';
 
 const $ = id => document.getElementById(id);
@@ -14,7 +14,7 @@ let browsingChapter = CHAPTERS[0].id;
 let traceInputs = [], allowedInputCount = 0;
 let preview = true, traceVisible = false, busy = false, sound = false, audioContext = null;
 let witness = null, impacts = [], hintCount = 1, turnToken = 0, toastTimer;
-const BEST_STORAGE_KEY = 'danger-close-best-precision-v1';
+const BEST_STORAGE_KEY = 'danger-close-best-general-v1';
 const PREVIOUS_BEST_STORAGE_KEY = 'danger-close-best-branches-v1';
 const LEGACY_BEST_STORAGE_KEY = 'danger-close-best-math-v2';
 function readBestScores(storageKey) {
@@ -63,23 +63,19 @@ function flash(messageKey) {
 }
 function openDialog(id) { if (!$(id).open) $(id).showModal(); }
 function closeDialog(id) { $(id).close(); }
-function expression(source) { try { return source.trim() ? parseExpression(source) : null; } catch { return null; } }
-function matches(ast, p) { try { return ast && evaluate(ast, p) === true; } catch { return false; } }
 function traceForLevel() {
   const l = level(), guard = parseExpression(l.guardSource), trace = [{...traceInputs[selectedInitialIndex]}];
-  for (let n=0; n<256 && evaluate(guard, trace.at(-1)); n++) trace.push(l.step(trace.at(-1)));
+  for (let n=0; n<256 && evaluate(guard, trace.at(-1)); n++) {
+    const current=trace.at(-1), next=l.step(current);
+    trace.push({...current,x:next.x,y:next.y});
+  }
   return trace;
 }
 function previewCandidates() {
-  const invariant = expression($('invariant-input').value), guard = expression(level().guardSource);
   const taken = new Set(battle.hit.map(key)), enemies = new Set(battle.enemies.map(key)), allies = new Set(battle.allies.map(key));
-  const result = [];
-  if (!invariant) return result;
-  for (let x=0; x<level().size; x++) for (let y=0; y<level().size; y++) {
-    const p={x,y}; if (!taken.has(key(p)) && matches(invariant,p) && !matches(guard,p)) {
-      result.push({...p,type:enemies.has(key(p))?'enemy':allies.has(key(p))?'friendly':'neutral'});
-    }
-  }
+  let projected=[];
+  try { projected=previewCandidatesForLevel($('invariant-input').value,level()); } catch { return []; }
+  const result=projected.filter(p=>!taken.has(key(p))).map(p=>({...p,type:enemies.has(key(p))?'enemy':allies.has(key(p))?'friendly':'neutral'}));
   const priority={neutral:0,friendly:1,enemy:2};
   return result.sort((a,b)=>priority[a.type]-priority[b.type] || a.x-b.x || a.y-b.y);
 }
@@ -125,6 +121,16 @@ function nextRound() {
   else selectRound(levelIndex+1);
 }
 function renderInitialInputs() {
+  if(isInitializedLevel(level())) {
+    $('initial-condition-panel').hidden=false;
+    $('initial-condition-description').textContent=t('externalInputs');
+    $('initial-condition-code').textContent='requires true;  (a, b) ∈ ℤ²';
+    $('initial-scope').textContent=t('externalScope',{count:allowedInputCount});
+    $('initial-input-label').textContent=t('battlefieldInputs');
+    $('initial-input-help').textContent=t('battlefieldInputsHelp');
+    $('initial-inputs').innerHTML=traceInputs.map((p,i)=>`<button class="initial-input ${i===selectedInitialIndex?'active':''}" data-initial-index="${i}" aria-pressed="${i===selectedInitialIndex}" aria-label="${esc(t('inputCase',{number:i+1,point:`(${p.a}, ${p.b})`}))}"><span>${pad(i+1)}</span><code>(a,b) = (${p.a}, ${p.b})</code><small>${esc(t('initializedState',{point:point(p),n:p.n,m:p.m}))}</small></button>`).join('');
+    return;
+  }
   const condition=level().initialCondition, predicate=condition!==undefined;
   $('initial-condition-panel').hidden=!predicate;
   $('initial-condition-description').textContent=predicate?t(condition.trim()==='true'?'unrestrictedInputs':'predicateInputs'):'';
@@ -136,7 +142,10 @@ function renderInitialInputs() {
 }
 function renderMap() {
   const l=level(), candidates=previewCandidates(), candidateSet=new Set(candidates.map(key));
-  const goal=expression($('goal-input').value), guard=expression(l.guardSource);
+  let goals=[], terminals=[];
+  try { goals=projectPredicate($('goal-input').value,l); } catch {}
+  try { terminals=projectPredicate(`!(${l.guardSource})`,l); } catch {}
+  const goalSet=new Set(goals.map(key)), terminalSet=new Set(terminals.map(key));
   const enemies=new Map(battle.enemies.map(unit=>[key(unit),unit])), allies=new Map(battle.allies.map(unit=>[key(unit),unit]));
   const hitMap=new Map(battle.hit.map(p=>[key(p),p])), impactSet=new Set(impacts.map(key));
   const cells=['<span class="axis-label axis-corner">Y / X</span>'];
@@ -145,7 +154,7 @@ function renderMap() {
     cells.push(`<span class="axis-label">${y}</span>`);
     for(let x=0;x<l.size;x++) {
       const p={x,y}, k=key(p), hit=hitMap.get(k), type=enemies.has(k)?'enemy':allies.has(k)?'friendly':'neutral';
-      const terminal=!matches(guard,p), objective=matches(goal,p);
+      const terminal=terminalSet.has(k), objective=goalSet.has(k);
       const classes=['cell',type,terminal?'terminal':'',preview&&candidateSet.has(k)?'candidate':'',preview&&key(candidates[0]||{})===k?'next-target':'',objective?'objective':'',hit?'hit':'',impactSet.has(k)?'impact':'',witness&&key(witness)===k?'witness':''].filter(Boolean).join(' ');
       const unit=hit||enemies.get(k)||allies.get(k), affiliation=hit?.type||type;
       const isUnit=affiliation==='enemy'||affiliation==='friendly';
@@ -193,7 +202,13 @@ function renderStats() {
   $('single-button').disabled=disabled; $('salvo-button').disabled=disabled;
   $('restart-button').disabled=busy; $('invariant-input').disabled=busy||battle.finished; $('goal-input').disabled=busy||battle.finished;
   $('target-enemies').disabled=busy||battle.finished;
-  $('command-note').textContent=t(battle.finished?'commandEnded':!$('goal-input').value.trim()?'commandNoGoal':'commandKeys');
+  const proofOnly=isInitializedLevel(level())&&!battle.enemies.length&&!battle.finished;
+  for(const mode of ['single','salvo']) {
+    $(`${mode}-button`).querySelector('[data-i18n-html]').innerHTML=proofOnly
+      ? `${esc(t('finalVerification'))}<small>${esc(t('freeVerification'))}</small>`
+      : UI_COPY[language][`fire.${mode}`];
+  }
+  $('command-note').textContent=t(battle.finished?'commandEnded':!battle.enemies.length?'proofRequiredBody':!$('goal-input').value.trim()?'commandNoGoal':'commandKeys');
 }
 function renderChecks() {
   $('verification-strip').innerHTML=['initial','preservation','goal'].map(k=>{
@@ -209,7 +224,10 @@ function feedback(kind,title,body,detail='') {
 function witnessReport(analysis) {
   const initial=analysis.initial.pass===false;
   const check=initial?analysis.initial:analysis.preservation;
-  return t(initial?'initialWitness':'preservationWitness',{before:point(check.before),after:point(check.after),outside:check.outsideDomain?t('outsideDomain'):''});
+  return t(initial?'initialWitness':'preservationWitness',{before:point(check.before),after:point(check.after),outside:check.outsideDomain?t('outsideDomain'):''})+witnessContext(check.before);
+}
+function witnessContext(state) {
+  return state && Number.isInteger(state.a)?` · ${t('inputContext',state)}`:'';
 }
 function shotReport(event) {
   const enemies=event.shots.filter(shot=>shot.type==='enemy'),friendlies=event.shots.filter(shot=>shot.type==='friendly');
@@ -221,11 +239,16 @@ function renderFeedback() {
   if(f.type==='ready'||f.type==='modified') return feedback('ready',t(`${f.type}Title`),t(`${f.type}Body`));
   if(f.type==='error') return feedback('error',t('rejectedTitle'),formatEngineError(f.error,language),t('noCharge'));
   if(f.type==='empty') return feedback('ready',t('emptyTitle'),t('emptyBody'),t('noCharge'));
+  if(f.type==='proved') return feedback('success',t('provedTitle'),t('provedBody'),t('noCharge'));
+  if(f.type==='proof-required') {
+    const a=f.analysis, failing=a.initial.pass===false||a.preservation.pass===false;
+    return feedback('warning',t('proofRequiredTitle'),t('proofRequiredBody'),failing?witnessReport(a):t('goalFailed',{point:point(a.specification?.before||a.goal.before)})+witnessContext(a.specification?.before||a.goal.before));
+  }
   if(f.type==='exception') return feedback('error',t('exceptionTitle'),formatEngineError(f.error,language));
   if(f.type==='dud') return feedback('error',t('dudTitle',{mode:t(f.mode)}),t(f.analysis.initial.pass===false?'initialFailure':'preservationFailure'),witnessReport(f.analysis));
   if(f.type==='fired') {
     const report=shotReport(f), goalPassed=f.analysis.goal.pass===true;
-    feedback(report.friendly?'error':goalPassed?'success':'warning',t('firedTitle',report),t('damageReport',report),goalPassed?t('goalPassed'):t(level().initialCondition?.trim()==='true'?'unrestrictedGoalFailed':'goalFailed',{point:point(f.analysis.goal.before)}));
+    feedback(report.friendly?'error':goalPassed?'success':'warning',t('firedTitle',report),t('damageReport',report),goalPassed?t('goalPassed'):t(level().initialCondition?.trim()==='true'?'unrestrictedGoalFailed':'goalFailed',{point:point(f.analysis.goal.before)})+witnessContext(f.analysis.goal.before));
   }
 }
 function renderLogs() {
@@ -246,13 +269,17 @@ function loadLevel(index) {
   levelIndex=index; selectedInitialIndex=0; battle=createBattle(level()); lastAnalysis=null;records=[];selectedTargets=new Set();witness=null;impacts=[];hintCount=1;busy=false;turnToken++;
   browsingChapter=level().chapter;
   traceInputs=traceInputsForLevel(level()); allowedInputCount=initialStatesForLevel(level()).length;
-  $('invariant-input').value=level().starter; $('goal-input').value='';
+  $('invariant-input').value=level().starter; $('goal-input').value=isInitializedLevel(level())?level().goalSolution:'';
+  $('goal-input').readOnly=isInitializedLevel(level());
+  $('target-enemies').hidden=isInitializedLevel(level());
   $('mission-brief').textContent=levelCopy().brief;
+  $('initialization-code').textContent=level().initializationCode||'';
   $('program-code').innerHTML=level().code.split('\n').map((line,i)=>`<span class="code-line"><span class="line-number">${pad(i+1)}</span><span>${esc(line).replace(/\b(while|if|else)\b/g,'<span class="code-keyword">$1</span>')}</span></span>`).join('');
   feedbackState={type:'ready'};
   render();
 }
 function setSelectedGoal() {
+  if(isInitializedLevel(level()))return;
   $('goal-input').value=[...selectedTargets].map(k=>{const [x,y]=k.split(',');return `(x == ${x} && y == ${y})`;}).join(' || ');
   invalidateAnalysis();
 }
@@ -272,10 +299,16 @@ async function fire(mode) {
   busy=true;renderStats();
   const currentToken=turnToken;
   try {
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
     const result=order(battle,$('invariant-input').value,$('goal-input').value,mode);
     lastAnalysis=result.analysis || null;
     if(result.error) {
       busy=false;feedbackState={type:'error',error:result};render();return;
+    }
+    if(result.reason==='proved'||result.reason==='proof-required') {
+      battle=result.battle;busy=false;feedbackState={type:result.reason,analysis:lastAnalysis};render();
+      if(battle.finished)showResult();
+      return;
     }
     if(result.reason==='no-candidates' || result.cost===0) {
       busy=false;feedbackState={type:'empty'};render();return;
@@ -353,7 +386,7 @@ $('overview-button').addEventListener('click',showOverview);
 $('previous-round').addEventListener('click',()=>selectRound(levelIndex-1));
 $('next-round').addEventListener('click',nextRound);
 $('initial-inputs').addEventListener('click',e=>{const b=e.target.closest('[data-initial-index]');if(!b)return;selectedInitialIndex=Number(b.dataset.initialIndex);traceVisible=true;renderInitialInputs();renderMap();});
-$('grid').addEventListener('click',e=>{const b=e.target.closest('[data-cell]');if(!b||busy||battle.finished)return;const k=b.dataset.cell;selectedTargets.has(k)?selectedTargets.delete(k):selectedTargets.add(k);setSelectedGoal();});
+$('grid').addEventListener('click',e=>{const b=e.target.closest('[data-cell]');if(!b||busy||battle.finished||isInitializedLevel(level()))return;const k=b.dataset.cell;selectedTargets.has(k)?selectedTargets.delete(k):selectedTargets.add(k);setSelectedGoal();});
 $('grid').addEventListener('pointerover',e=>{const b=e.target.closest('[data-cell]');if(b)$('hover-coordinate').textContent=`COORDINATE (${b.dataset.cell.replace(',',', ')})`;});
 $('grid').addEventListener('pointerleave',()=>{$('hover-coordinate').textContent=t('coordinatePrompt');});
 $('target-enemies').addEventListener('click',()=>{selectedTargets=new Set(level().enemies.map(key));setSelectedGoal();});

@@ -179,6 +179,11 @@ p.mission-brief { margin: 0; padding: 15px 0; color: var(--muted); font-size: 12
 .initial-input { display: flex; align-items: center; gap: 9px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 2px; background: #141a14; color: var(--cream); cursor: pointer; }
 .initial-input > span { color: var(--faint); font: 9px var(--mono); }
 .initial-input > code { font: 12px var(--mono); }
+.initial-input { display: grid; grid-template-columns: auto 1fr; text-align: left; flex: 1 1 150px; }
+.initial-input > small { grid-column: 1 / -1; color: var(--muted); font: 10px/1.6 var(--mono); }
+#initialization-code { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+.initialization-panel { border-bottom: 0; }
+textarea.goal-input[readonly] { min-height: 72px; padding: 10px 13px; border-color: var(--line); background: #1d231b; color: var(--yellow); resize: vertical; }
 .initial-input.active { border-color: #91a976; background: #293522; }
 .initial-input:focus-visible { outline: 2px solid var(--orange-bright); outline-offset: 2px; }
 .initial-condition-panel { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }

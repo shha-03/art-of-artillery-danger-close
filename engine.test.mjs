@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   DOMAIN, parseExpression, evaluate, analyze, createBattle, order, formatEngineError,
-  initialStatesForLevel, traceInputsForLevel,
+  initialStatesForLevel, traceInputsForLevel, isInitializedLevel, INPUT_DOMAIN,
 } from './dist/engine.js';
 import { unitPoints } from './dist/unit-types.js';
 
@@ -11,7 +11,7 @@ import { unitPoints } from './dist/unit-types.js';
 const engineSource = await readFile(new URL('./dist/engine.js', import.meta.url), 'utf8');
 const getInitialStates = initialStatesForLevel;
 const getTraceInputs = traceInputsForLevel;
-const coordinates = (units) => units.map(({ x, y }) => ({ x, y }));
+const coordinates = (units) => units.map(({ x, y }) => ({ x, y })).sort((a, b) => a.x - b.x || a.y - b.y);
 
 const evalAt = (source, state = { x: 2, y: 3 }) => evaluate(parseExpression(source), state);
 const level = (overrides = {}) => ({
@@ -219,7 +219,7 @@ test('command budget defaults and invalid level data are handled', () => {
 
 const { LEVELS } = await import('./dist/levels.js');
 
-test('authored starters expose their intended failure and each solution proves its three enemy coordinates', () => {
+test('authored starters expose their intended failure and each solution proves the displayed enemy coordinates', () => {
   assert.equal(LEVELS.length, 20);
   for (const mission of LEVELS) {
     const starter = analyze(mission.starter, mission.goalSolution, mission);
@@ -228,36 +228,41 @@ test('authored starters expose their intended failure and each solution proves i
     const solution = analyze(mission.solution, mission.goalSolution, mission);
     assert.equal(solution.valid, true, mission.id);
     assert.equal(solution.goal.pass, true, mission.id);
-    assert.equal(solution.exitStateCount, 3, mission.id);
+    if (isInitializedLevel(mission)) {
+      assert.equal(solution.contextCount, INPUT_DOMAIN.stateCount, mission.id);
+      assert.equal(solution.checkedStateCount, INPUT_DOMAIN.stateCount * DOMAIN.stateCount, mission.id);
+      assert.equal(solution.specification.pass, true, mission.id);
+      assert.equal(solution.objectiveVerified, true, mission.id);
+    } else assert.equal(solution.exitStateCount, 3, mission.id);
     assert.equal(solution.traceStatus, 'terminated', mission.id);
     assert.equal(solution.initial.checkedCount, initialStatesForLevel(mission).length, mission.id);
     assert.deepEqual(solution.candidates, coordinates(mission.enemies), mission.id);
     assert.equal(solution.traces.length, 3, mission.id);
     assert.equal(solution.traces.every(run => run.traceStatus === 'terminated'), true, mission.id);
-    const endpoints = solution.traces.map(run => {
+    const endpoints = [...new Map(solution.traces.map(run => {
       const { x, y } = run.trace.at(-1);
-      return { x: x + 0, y: y + 0 }; // Signed zero is the same integer coordinate.
-    }).sort((a,b)=>a.x-b.x||a.y-b.y);
+      return [`${x},${y}`, { x: x + 0, y: y + 0 }]; // Signed zero is the same integer coordinate.
+    })).values()].sort((a,b)=>a.x-b.x||a.y-b.y);
     assert.deepEqual(endpoints, coordinates(mission.enemies), mission.id);
     const clear = order(createBattle(mission), mission.solution, mission.goalSolution, 'salvo');
     assert.equal(clear.battle.cleared, true, mission.id);
     assert.equal(clear.battle.friendlyKills, 0, mission.id);
-    assert.equal(clear.shots.length, 3, mission.id);
-    assert.equal(clear.battle.remaining, 5, mission.id);
+    assert.equal(clear.shots.length, mission.enemies.length, mission.id);
+    assert.equal(clear.battle.remaining, mission.commands - 1, mission.id);
     const targetPoints = mission.enemies.reduce((sum, unit) => sum + unitPoints(unit), 0);
     assert.equal(clear.battle.enemyPoints, targetPoints, mission.id);
     assert.equal(clear.battle.friendlyPoints, 0, mission.id);
-    assert.equal(clear.battle.score, targetPoints + 5, mission.id);
+    assert.equal(clear.battle.score, targetPoints + mission.commands - 1, mission.id);
   }
 });
 
-test('three singles and one salvo earn the same target points with two commands saved by the salvo', () => {
+test('singles and a salvo earn the same target points with one command charged per order', () => {
   for (const mission of LEVELS) {
     let battle = createBattle(mission);
-    for (let shot = 0; shot < 3; shot++) {
+    for (let shot = 0; shot < mission.enemies.length; shot++) {
       const result = order(battle, mission.solution, mission.goalSolution, 'single');
       assert.equal(result.analysis.goal.pass, true, mission.id);
-      assert.equal(result.analysis.candidates.length, 3, mission.id);
+      assert.equal(result.analysis.candidates.length, mission.enemies.length, mission.id);
       assert.equal(result.shots.length, 1, mission.id);
       assert.equal(result.shots[0].type, 'enemy', mission.id);
       battle = result.battle;
@@ -265,9 +270,9 @@ test('three singles and one salvo earn the same target points with two commands 
     assert.equal(battle.cleared, true, mission.id);
     const targetPoints = mission.enemies.reduce((sum, unit) => sum + unitPoints(unit), 0);
     assert.equal(battle.enemyPoints, targetPoints, mission.id);
-    assert.equal(battle.score, targetPoints + 3, mission.id);
+    assert.equal(battle.score, targetPoints + mission.commands - mission.enemies.length, mission.id);
     const salvo = order(createBattle(mission), mission.solution, mission.goalSolution, 'salvo');
-    assert.equal(salvo.battle.score - battle.score, 2, mission.id);
+    assert.equal(salvo.battle.score - battle.score, mission.enemies.length - 1, mission.id);
   }
 });
 
