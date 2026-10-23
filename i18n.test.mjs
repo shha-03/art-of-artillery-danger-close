@@ -174,7 +174,7 @@ test('both languages distinguish permission to fire from the exit guarantee and 
   assert.match(UI_COPY.en['manual.step3Body'], /Syntax or arithmetic errors[\s\S]*without charge/);
   assert.match(UI_COPY.ko['manual.step3Body'], /단발과 일제사는 모두 명령 1회[\s\S]*중립 → 아군 → 적군/);
   assert.match(UI_COPY.en['manual.step3Body'], /Single shots and salvos each cost one order[\s\S]*neutral → friendly → enemy/);
-  assert.match(UI_COPY.ko['manual.step4Body'], /적이 전멸하면 종료 보장 결과와 관계없이 즉시 작전을 완료/);
+  assert.match(UI_COPY.ko['manual.step4Body'], /적이 전멸하면 종료 시 보장 결과와 관계없이 즉시 작전을 완료/);
   assert.match(UI_COPY.en['manual.step4Body'], /Eliminating all enemies immediately completes the mission, regardless of the exit guarantee/);
 });
 
@@ -194,9 +194,9 @@ test('completion copy fixes the last-shot bonus at x2 or x1 without offering a p
     }
     assert.doesNotMatch(COPY[locale].resultClear, /명세 통과|specification passed/);
   }
-  assert.match(UI_COPY.ko['manual.scoreBonus'], /마지막 사격[\s\S]*초기 성립·유지·종료 보장과 고정 명세[\s\S]*기본 점수 ×2/);
+  assert.match(UI_COPY.ko['manual.scoreBonus'], /마지막 사격[\s\S]*초기 성립·유지·종료 시 보장과 고정 명세[\s\S]*기본 점수 ×2/);
   assert.match(UI_COPY.en['manual.scoreBonus'], /final shot[\s\S]*initiation, preservation, the exit guarantee, and the fixed specification[\s\S]*base score ×2/);
-  assert.match(UI_COPY.ko['manual.scoreBonus'], /종료 미보장 완료·진행 중·명령 소진 실패는 ×1[\s\S]*완료 후에는 재검증하거나 보너스를 추가로 획득할 수 없다/);
+  assert.match(UI_COPY.ko['manual.scoreBonus'], /종료 시 미보장 완료·진행 중·명령 소진 실패는 ×1[\s\S]*완료 후에는 재검증하거나 보너스를 추가로 획득할 수 없다/);
   assert.match(UI_COPY.en['manual.scoreBonus'], /Unproven completions, ongoing operations, and failures due to exhausted orders use ×1[\s\S]*No recheck or additional bonus is available after completion/);
   const html = readFileSync(new URL('./dist/index.html', import.meta.url), 'utf8');
   for (const id of ['result-bonus', 'result-bonus-title', 'result-bonus-detail']) {
