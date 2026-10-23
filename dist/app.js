@@ -1,7 +1,7 @@
 import { parseExpression, evaluate, initialStatesForLevel, traceInputsForLevel, isInitializedLevel, projectPredicate, previewCandidatesForLevel, createBattle, order, formatEngineError } from './engine.js';
 import { LEVELS, CHAPTERS } from './levels.js';
 import { LANGUAGE_STORAGE_KEY, resolveLanguage, translate } from './i18n.js';
-import { applyStaticTranslations, UI_COPY } from './ui-copy.js';
+import { applyStaticTranslations, renderHintContent, UI_COPY } from './ui-copy.js';
 import { UNIT_TYPES, unitPoints, unitSymbol } from './unit-types.js';
 
 const $ = id => document.getElementById(id);
@@ -356,7 +356,7 @@ function renderResult() {
   $('result-next').textContent=t(levelIndex<LEVELS.length-1?'nextMission':'campaignOverview');
 }
 function renderHints() {
-  $('hint-list').innerHTML=levelCopy().hints.slice(0,hintCount).map((h,i)=>`<div class="hint-item"><span>INTEL ${pad(i+1)}</span><p>${esc(h)}</p></div>`).join('')+(hintCount===level().hints.length?`<div class="hint-item"><span>${esc(t('solutionTitle'))}</span><code>${esc(level().solution)}</code><p>${esc(t('solutionBody'))}</p></div>`:'');
+  $('hint-list').innerHTML=renderHintContent(level(),language,hintCount);
   $('next-hint').disabled=hintCount>=level().hints.length;
 }
 function renderSound() {

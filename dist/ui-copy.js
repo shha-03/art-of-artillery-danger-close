@@ -1,5 +1,7 @@
-// Static interface copy only. HTML entries below are trusted application text,
-// never player input. Dynamic mission and combat messages belong to app.js.
+import { translate } from './i18n.js';
+
+// HTML translations below are trusted application text. The hint renderer at
+// the end of this module escapes every mission-specific text field.
 export const UI_COPY = {
   ko: {
     'meta.description': '불변식으로 포격을 지휘하라. Art of Artillery: Danger Close — 프로그램 검증 전술 퍼즐.',
@@ -91,6 +93,7 @@ export const UI_COPY = {
     'intel.close': '정보 보고 닫기',
     'intel.title': '정찰 보고.',
     'intel.note': '정보 열람은 명령 횟수를 소모하지 않는다.',
+    'intel.content': '단계별 힌트와 검증 해설',
     'intel.more': '추가 정보',
     'intel.return': '전장 복귀',
     'result.close': '결과 닫기',
@@ -188,6 +191,7 @@ export const UI_COPY = {
     'intel.close': 'Close intel report',
     'intel.title': 'Recon report.',
     'intel.note': 'Reviewing intel does not consume orders.',
+    'intel.content': 'Progressive hints and verification explanation',
     'intel.more': 'Further intel',
     'intel.return': 'Return to field',
     'result.close': 'Close mission report',
@@ -196,6 +200,35 @@ export const UI_COPY = {
     'result.next': 'Next operation →'
   }
 };
+
+const escapeHintText = value => String(value).replace(/[&<>"']/g, character => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[character]));
+
+/** Reveal the explanation only alongside the final hint; legacy levels may omit it. */
+export function renderHintContent(level, language, revealedCount) {
+  const locale = language === 'en' ? 'en' : 'ko';
+  const localized = locale === 'en' ? (level.en ?? level) : level;
+  const hints = localized.hints ?? level.hints ?? [];
+  const count = Math.max(0, Math.min(hints.length, Number.isFinite(revealedCount) ? Math.floor(revealedCount) : 0));
+  const t = key => escapeHintText(translate(locale, key));
+  const visibleHints = hints.slice(0, count).map((hint, index) =>
+    `<div class="hint-item" data-hint-index="${index}"><span>INTEL ${String(index + 1).padStart(2, '0')}</span><p>${escapeHintText(hint)}</p></div>`).join('');
+  if (count < hints.length || hints.length === 0) return visibleHints;
+
+  const solution = `<div class="hint-item hint-solution"><span>${t('solutionTitle')}</span><code>${escapeHintText(level.solution)}</code><p>${t('solutionBody')}</p></div>`;
+  const explanation = localized.explanation;
+  const sections = [
+    ['initial', 'explanationInitial'], ['preservation', 'explanationPreservation'],
+    ['postcondition', 'explanationPostcondition'], ['note', 'explanationNote'],
+  ].filter(([field]) => typeof explanation?.[field] === 'string' && explanation[field].trim());
+  if (!sections.length) return visibleHints + solution;
+
+  const details = sections.map(([field, title]) =>
+    `<div class="explanation-step" data-explanation="${field}"><dt>${t(title)}</dt><dd>${escapeHintText(explanation[field])}</dd></div>`).join('');
+  return visibleHints + solution
+    + `<section class="solution-explanation" aria-label="${t('explanationTitle')}"><h3>${t('explanationTitle')}</h3><dl>${details}</dl></section>`;
+}
 
 /** Apply trusted static copy, then let app.js render state-dependent messages. */
 export function applyStaticTranslations(language) {

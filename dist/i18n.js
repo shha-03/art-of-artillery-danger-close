@@ -94,7 +94,9 @@ export const COPY = {
     enemyKills: '적군 격파', friendlyLosses: '아군 피해', remaining: '남은 명령',
     nextMission: '다음 작전 →', firstMission: '첫 작전으로 →',
     solutionTitle: '검증 해법 참조',
-    solutionBody: '예시는 외부 입력 81개와 상태 검사창에서 초기 성립·유지·고정 명세를 통과한다. 무한 정수 전체의 증명은 아니다. 입력과 결과의 관계를 보존하는 다른 불변식도 사용할 수 있다.',
+    explanationTitle: '검증 해설', explanationInitial: '초기 성립',
+    explanationPreservation: '유지', explanationPostcondition: '목표 보장', explanationNote: '간결화 근거',
+    solutionBody: '예시는 외부 입력 81개와 상태 검사창에서 초기 성립·유지·고정 명세를 통과한다. 이 자동 검사 결과만으로 무한 정수 전체를 증명하지는 않는다. 같은 명세를 보장하는 다른 불변식도 사용할 수 있다.',
     sound: '사운드 {state}',
   },
   en: {
@@ -181,7 +183,9 @@ export const COPY = {
     enemyKills: 'Enemies eliminated', friendlyLosses: 'Friendly losses', remaining: 'Orders remaining',
     nextMission: 'Next operation →', firstMission: 'First operation →',
     solutionTitle: 'Verified solution reference',
-    solutionBody: 'This example passes initiation, preservation, and the fixed specification for all 81 tested inputs and the state window. It is not a proof over unbounded integers. Other invariants preserving the input–result relationship are also accepted.',
+    explanationTitle: 'Verification explained', explanationInitial: 'Initiation',
+    explanationPreservation: 'Preservation', explanationPostcondition: 'Postcondition', explanationNote: 'Why these clauses suffice',
+    solutionBody: 'This example passes initiation, preservation, and the fixed specification for all 81 tested inputs and the state window. These automatic checks alone do not prove correctness over unbounded integers. Other invariants establishing the same specification are also accepted.',
     sound: 'Sound {state}',
   },
 };
