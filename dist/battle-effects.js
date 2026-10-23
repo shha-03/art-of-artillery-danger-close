@@ -1,9 +1,8 @@
 /** Decorative firing effects. Verification, shot selection, and timing belong
  * to app.js; this module never changes game state or announces duplicate text. */
-export const BATTLE_EFFECT_TIMING = Object.freeze({ loadingMotion: 320, breechCloseMotion: 360, flight: 620, impact: 680, radio: 720 });
+export const BATTLE_EFFECT_TIMING = Object.freeze({ flight: 620, impact: 680, radio: 720 });
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const PHASES = new Set(['idle', 'initial', 'breech-open', 'preservation', 'loading', 'breech-close', 'goal', 'fire', 'flight', 'impact', 'radio', 'failed', 'complete']);
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 /**
@@ -12,8 +11,8 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
  * assumptions about axis direction, cell spacing, or responsive breakpoints.
  * Methods are synchronous; launch() finishes its visible flight within 620ms.
  */
-export function createBattleEffects({ grid, battlefield, commandPanel }) {
-  if (!grid || !battlefield || !commandPanel) throw new TypeError('Battle effects require grid, battlefield, and commandPanel.');
+export function createBattleEffects({ grid, battlefield }) {
+  if (!grid || !battlefield) throw new TypeError('Battle effects require grid and battlefield.');
   const document = grid.ownerDocument;
   const window = document.defaultView;
   const media = window.matchMedia?.('(prefers-reduced-motion: reduce)');
@@ -23,8 +22,6 @@ export function createBattleEffects({ grid, battlefield, commandPanel }) {
   let generation = 0;
   let flights = [];
   let bursts = [];
-  let phase = 'idle';
-  let mechanicalTimer = null;
   let geometry = { width: 1, height: 1 };
   const timers = new Set();
   const svg = (tag, attrs = {}) => {
@@ -50,36 +47,6 @@ export function createBattleEffects({ grid, battlefield, commandPanel }) {
   layer.append(flightLayer, impactLayer);
   battlefield.append(layer);
   battlefield.classList.add('fx-effects-enabled');
-
-  let slot = commandPanel.querySelector('[data-fx-mechanism]');
-  const ownsSlot = !slot;
-  if (!slot) {
-    slot = document.createElement('div');
-    slot.setAttribute('data-fx-mechanism', '');
-    const verification = commandPanel.querySelector('.verification-strip');
-    if (verification) verification.before(slot);
-    else commandPanel.append(slot);
-  }
-  slot.classList.add('fx-mechanism-slot');
-  const mechanism = document.createElement('div');
-  mechanism.className = 'fx-mechanism';
-  mechanism.setAttribute('aria-hidden', 'true');
-  mechanism.innerHTML = `<svg viewBox="0 0 360 76" focusable="false" aria-hidden="true">
-    <path class="fx-guide" d="M18 57H342M34 60V64M90 60V64M146 60V64M202 60V64M258 60V64M314 60V64"/>
-    <path class="fx-mount" d="M128 46 111 57H219L198 46M148 47V57M183 47V57"/>
-    <g class="fx-recoil-unit">
-      <path class="fx-barrel" d="M162 25H326V39H162ZM319 22H330V42H319Z"/>
-      <path class="fx-chamber" d="M100 20H172V45H100Z"/>
-      <path class="fx-chamber-interior" d="M108 27H168V38H108Z"/>
-      <path class="fx-rifling" d="M180 29H311M180 35H311"/>
-      <g class="fx-round"><path d="M110 27H143L155 32.5 143 38H110Z"/><path class="fx-round-band" d="M117 27V38M123 27V38"/></g>
-      <g class="fx-breech"><path d="M92 17H106V48H92Z"/><path d="M86 23H92V42H86Z"/><g class="fx-lock-lever"><path d="M99 32H84V24"/><circle cx="84" cy="22" r="3"/></g></g>
-    </g>
-    <g class="fx-muzzle-flash"><path d="m332 32 19-11-6 10 12 2-13 3 5 10Z"/><path d="m332 32 13-3-4 5 7 3-14-2Z"/></g>
-    <circle class="fx-ready-lamp" cx="62" cy="32" r="3"/>
-    <g class="fx-radio-glyph"><path d="M28 26v13M24 29v7M32 23v19M38 25q8 7 0 14M43 20q14 12 0 24"/></g>
-  </svg>`;
-  slot.append(mechanism);
 
   const selectedShots = (shots, size) => {
     const limit = Number.isInteger(size) && size > 0 ? size : 9;
@@ -177,42 +144,6 @@ export function createBattleEffects({ grid, battlefield, commandPanel }) {
     if (active) frame = window.requestAnimationFrame(tickFlight);
     else wipeFlights();
   };
-  const setPhase = (next) => {
-    if (disposed) return;
-    if (mechanicalTimer !== null) {
-      window.clearTimeout(mechanicalTimer);
-      timers.delete(mechanicalTimer);
-      mechanicalTimer = null;
-    }
-    phase = PHASES.has(next) ? next : 'idle';
-    mechanism.dataset.phase = phase;
-    commandPanel.dataset.fxPhase = phase;
-    battlefield.dataset.fxPhase = phase;
-    // A failed check changes the indication only. It must not open a closed
-    // breech or withdraw a round after the loading sequence has completed.
-    if (phase === 'failed') return;
-    const opened = ['breech-open', 'preservation', 'loading'].includes(phase);
-    mechanism.dataset.breech = opened ? 'open' : ['goal', 'fire', 'flight', 'impact', 'radio', 'complete'].includes(phase) ? 'locked' : 'closed';
-    mechanism.dataset.round = opened ? 'waiting' : 'empty';
-    if (phase === 'loading') {
-      // The ram seats with the loading cue's main impact around 300ms; its
-      // resonance then fades within the 620ms phase. Closing is a separate phase.
-      mechanism.dataset.round = reduced ? 'seated' : 'inserting';
-      if (!reduced) mechanicalTimer = later(() => {
-        mechanicalTimer = null;
-        if (phase === 'loading') mechanism.dataset.round = 'seated';
-      }, BATTLE_EFFECT_TIMING.loadingMotion);
-    } else if (phase === 'breech-close') {
-      mechanism.dataset.round = 'seated';
-      mechanism.dataset.breech = reduced ? 'locked' : 'closing';
-      if (!reduced) mechanicalTimer = later(() => {
-        mechanicalTimer = null;
-        if (phase === 'breech-close') mechanism.dataset.breech = 'locked';
-      }, BATTLE_EFFECT_TIMING.breechCloseMotion);
-    } else if (phase === 'goal') {
-      mechanism.dataset.round = 'seated';
-    }
-  };
   const makeReducedTarget = (shot, index) => {
     const target = positionFor(shot);
     if (!target) return;
@@ -299,13 +230,10 @@ export function createBattleEffects({ grid, battlefield, commandPanel }) {
     wipeFlights();
     wipeBursts();
     battlefield.querySelector('.map-status')?.classList.remove('fx-radio-pulse');
-    setPhase('idle');
   };
   const onMotionChange = (event) => {
     reduced = Boolean(event.matches);
     layer.classList.toggle('fx-reduced-motion', reduced);
-    mechanism.classList.toggle('fx-reduced-motion', reduced);
-    if (reduced && mechanicalTimer !== null) setPhase(phase);
     if (reduced && flights.length) {
       const shots = flights.map(item => item.shot);
       wipeFlights();
@@ -327,14 +255,9 @@ export function createBattleEffects({ grid, battlefield, commandPanel }) {
     if (media?.removeEventListener) media.removeEventListener('change', onMotionChange);
     else media?.removeListener?.(onMotionChange);
     layer.remove();
-    mechanism.remove();
-    if (ownsSlot) slot.remove();
     battlefield.classList.remove('fx-effects-enabled');
-    delete battlefield.dataset.fxPhase;
-    delete commandPanel.dataset.fxPhase;
   };
   onMotionChange({ matches: reduced });
   updateGeometry();
-  setPhase('idle');
-  return { setPhase, launch, impact, radio, clear, dispose };
+  return { launch, impact, radio, clear, dispose };
 }

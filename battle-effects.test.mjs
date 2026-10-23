@@ -4,7 +4,7 @@ import { createBattleEffects, BATTLE_EFFECT_TIMING } from './dist/battle-effects
 
 // A small DOM boundary fake tests coordinates, lifecycle, and motion policy.
 // Pixel rendering and the visual timeline are covered by the browser smoke test.
-function environment({ reduced = false, existingSlot = false } = {}) {
+function environment({ reduced = false } = {}) {
   let now = 0, nextId = 1;
   const frames = new Map(), timers = new Map(), listeners = new Map();
   const observers = [];
@@ -55,11 +55,7 @@ function environment({ reduced = false, existingSlot = false } = {}) {
   const grid = document.createElement('div');
   const battlefield = document.createElement('section');
   battlefield.rect = { left: 70, top: 130, width: 600, height: 700 };
-  const commandPanel = document.createElement('section');
-  const strip = document.createElement('div'); strip.className = 'verification-strip'; commandPanel.append(strip);
   const status = document.createElement('div'); status.className = 'map-status'; battlefield.append(grid, status);
-  let slot;
-  if (existingSlot) { slot = document.createElement('div'); slot.setAttribute('data-fx-mechanism', ''); strip.before(slot); }
   const cells = new Map();
   for (let x = 0; x < 9; x++) for (let y = 0; y < 9; y++) {
     const cell = document.createElement('button'); cell.setAttribute('data-cell', `${x},${y}`);
@@ -67,7 +63,7 @@ function environment({ reduced = false, existingSlot = false } = {}) {
     grid.append(cell); cells.set(`${x},${y}`, cell);
   }
   return {
-    grid, battlefield, commandPanel, status, cells, slot, frames, timers, observers, mediaListeners, listeners,
+    grid, battlefield, status, cells, frames, timers, observers, mediaListeners, listeners,
     advance(time) {
       now = time;
       const pendingFrames = [...frames.values()]; frames.clear(); pendingFrames.forEach(f => f(now));
@@ -101,11 +97,9 @@ test('effects use actual cell rectangles and survive grid rerender and resize', 
   effects.dispose();
 });
 
-test('clear and dispose cancel pending work without deleting the supplied diagram slot', () => {
-  const env = environment({ existingSlot: true });
+test('clear and dispose cancel pending work and remove the effects layer', () => {
+  const env = environment();
   const effects = createBattleEffects(env);
-  effects.setPhase('fire');
-  assert.equal(env.commandPanel.dataset.fxPhase, 'fire');
   effects.launch([{ x: 0, y: 0 }]);
   effects.radio();
   assert.equal(env.status.classList.contains('fx-radio-pulse'), true);
@@ -113,13 +107,10 @@ test('clear and dispose cancel pending work without deleting the supplied diagra
   assert.equal(env.frames.size, 0);
   assert.equal(env.timers.size, 0);
   assert.equal(env.status.classList.contains('fx-radio-pulse'), false);
-  assert.equal(env.commandPanel.dataset.fxPhase, 'idle');
   env.advance(10000);
   assert.equal(env.battlefield.querySelectorAll('.fx-projectile').length, 0);
   effects.dispose(); effects.dispose();
   assert.equal(env.battlefield.querySelector('.fx-battle-layer'), null);
-  assert.equal(env.commandPanel.querySelector('[data-fx-mechanism]'), env.slot);
-  assert.equal(env.slot.children.length, 0);
   assert.equal(env.mediaListeners.size, 0);
   assert.equal(env.listeners.get('resize').size, 0);
   assert.ok(env.observers.every(observer => !observer.connected));
@@ -158,96 +149,5 @@ test('reduced motion uses static markers and reacts to a preference change durin
   assert.equal(env.battlefield.querySelectorAll('.fx-projectile').length, 0);
   assert.equal(env.battlefield.querySelectorAll('.fx-reduced-target').length, 1);
   assert.equal(env.battlefield.querySelector('.fx-battle-layer').getAttribute('aria-hidden'), 'true');
-  effects.dispose();
-});
-
-test('round insertion completes with the breech open, then closing locks it in a separate phase', () => {
-  const env = environment();
-  const effects = createBattleEffects(env);
-  const mechanism = env.commandPanel.querySelector('.fx-mechanism');
-  effects.setPhase('breech-open');
-  assert.equal(mechanism.dataset.breech, 'open');
-  assert.equal(mechanism.dataset.round, 'waiting');
-  effects.setPhase('preservation');
-  effects.setPhase('loading');
-  assert.equal(env.commandPanel.dataset.fxPhase, 'loading');
-  assert.equal(mechanism.dataset.breech, 'open');
-  assert.equal(mechanism.dataset.round, 'inserting');
-  env.advance(BATTLE_EFFECT_TIMING.loadingMotion - 1);
-  assert.equal(mechanism.dataset.round, 'inserting');
-  env.advance(BATTLE_EFFECT_TIMING.loadingMotion);
-  assert.equal(mechanism.dataset.round, 'seated');
-  assert.equal(mechanism.dataset.breech, 'open');
-  env.advance(620);
-  assert.equal(mechanism.dataset.breech, 'open');
-  effects.setPhase('breech-close');
-  assert.equal(mechanism.dataset.breech, 'closing');
-  assert.equal(mechanism.dataset.round, 'seated');
-  env.advance(620 + BATTLE_EFFECT_TIMING.breechCloseMotion - 1);
-  assert.equal(mechanism.dataset.breech, 'closing');
-  env.advance(620 + BATTLE_EFFECT_TIMING.breechCloseMotion);
-  assert.equal(mechanism.dataset.breech, 'locked');
-  effects.setPhase('goal');
-  assert.equal(mechanism.dataset.breech, 'locked');
-  assert.equal(mechanism.dataset.round, 'seated');
-  effects.dispose();
-});
-
-test('mechanical phase changes and clear cancel stale seating and locking callbacks', () => {
-  const env = environment();
-  const effects = createBattleEffects(env);
-  const mechanism = env.commandPanel.querySelector('.fx-mechanism');
-  effects.setPhase('loading');
-  effects.setPhase('failed');
-  env.advance(700);
-  assert.equal(mechanism.dataset.round, 'inserting');
-  assert.equal(mechanism.dataset.breech, 'open');
-  assert.equal(env.timers.size, 0);
-  effects.setPhase('breech-close');
-  effects.clear();
-  env.advance(2000);
-  assert.equal(mechanism.dataset.phase, 'idle');
-  assert.equal(mechanism.dataset.breech, 'closed');
-  assert.equal(env.timers.size, 0);
-  effects.dispose();
-});
-
-test('failed checks preserve the previous closed, open, or locked mechanical pose', () => {
-  const env = environment({ reduced: true });
-  const effects = createBattleEffects(env);
-  const mechanism = env.commandPanel.querySelector('.fx-mechanism');
-  for (const [checkPhase, breech, round] of [
-    ['initial', 'closed', 'empty'],
-    ['preservation', 'open', 'waiting'],
-    ['goal', 'locked', 'seated'],
-  ]) {
-    effects.clear();
-    effects.setPhase(checkPhase);
-    effects.setPhase('failed');
-    assert.equal(mechanism.dataset.phase, 'failed');
-    assert.equal(mechanism.dataset.breech, breech);
-    assert.equal(mechanism.dataset.round, round);
-  }
-  effects.dispose();
-});
-
-test('reduced motion keeps distinct open-loaded and closed-locked static poses', () => {
-  const env = environment({ reduced: true });
-  const effects = createBattleEffects(env);
-  const mechanism = env.commandPanel.querySelector('.fx-mechanism');
-  effects.setPhase('loading');
-  assert.equal(mechanism.dataset.round, 'seated');
-  assert.equal(mechanism.dataset.breech, 'open');
-  assert.equal(env.timers.size, 0);
-  effects.setPhase('breech-close');
-  assert.equal(mechanism.dataset.breech, 'locked');
-  assert.equal(env.timers.size, 0);
-  env.motion(false);
-  effects.setPhase('loading');
-  assert.equal(mechanism.dataset.round, 'inserting');
-  env.motion(true);
-  assert.equal(mechanism.dataset.round, 'seated');
-  assert.equal(mechanism.dataset.breech, 'open');
-  assert.equal(env.timers.size, 0);
   effects.dispose();
 });

@@ -26,7 +26,7 @@ const artilleryAudio = createArtilleryAudio();
 artilleryAudio.setEnabled(sound);
 // Fetch the short recordings early without creating an AudioContext.
 void artilleryAudio.preload().catch(() => {});
-const battleEffects = createBattleEffects({ grid: $('grid'), battlefield: document.querySelector('.battlefield'), commandPanel: document.querySelector('.command-panel') });
+const battleEffects = createBattleEffects({ grid: $('grid'), battlefield: document.querySelector('.battlefield') });
 const BEST_STORAGE_KEY = 'danger-close-best-proof-bonus-v1';
 const PREVIOUS_PROOF_STORAGE_KEY = 'danger-close-best-general-v1';
 const PREVIOUS_BEST_STORAGE_KEY = 'danger-close-best-branches-v1';
@@ -324,7 +324,6 @@ function setSelectedGoal() {
 }
 function setFiringPhase(phase) {
   firingPhase=phase;
-  if(phase!=='flight-delay')battleEffects.setPhase(phase);
   renderSequence();renderFeedback();
 }
 function playCue(cue,options) {if(!document.hidden)artilleryAudio.play(cue,options);}

@@ -595,39 +595,6 @@ html[lang="en"] .fire-button small { font-size: 9px; line-height: 1.5; white-spa
 .check-item.blocked { border-style: dashed; border-color: #49503e; background: #1c2219; }
 .check-item.blocked .check-icon, .check-item.blocked .check-title { color: #7d856f; }
 .check-item.blocked .check-detail { color: #858b77; }
-.fx-mechanism-slot { min-width: 0; margin: 0 0 12px; }
-.fx-mechanism { --fx-breech-offset: 0px; --fx-lock-angle: 0deg; --fx-round-offset: -43px; --fx-round-opacity: 0; width: 100%; overflow: hidden; border: 1px solid var(--line); border-top: 0; background: linear-gradient(90deg, #151c15, #20261b 66%, #171e16); }
-.fx-mechanism svg { display: block; width: 100%; height: 72px; }
-.fx-guide { fill: none; stroke: #46513b; stroke-width: 1; }
-.fx-mount { fill: #2b3525; stroke: #82916c; stroke-width: 1.5; }
-.fx-barrel, .fx-chamber { fill: #4a553e; stroke: #a7ae8d; stroke-width: 1.4; }
-.fx-chamber-interior { fill: #121a11; stroke: #8a9272; stroke-width: 1; }
-.fx-rifling { fill: none; stroke: #c8c7a3; stroke-width: 1; opacity: .45; }
-.fx-breech { fill: #758064; stroke: #c2c9a7; stroke-width: 1.3; transform: translateY(var(--fx-breech-offset)); transition: transform .24s cubic-bezier(.25, .7, .3, 1); }
-.fx-lock-lever { fill: #b4bda0; stroke: #d5d8bd; stroke-width: 2; transform-origin: 99px 32px; transform: rotate(var(--fx-lock-angle)); transition: transform .12s ease-out; }
-.fx-lock-lever > path { fill: none; }
-.fx-round { fill: #d2a65e; stroke: #e9ca8a; stroke-width: 1; transform: translateX(var(--fx-round-offset)); opacity: var(--fx-round-opacity); transition: transform .32s cubic-bezier(.25, .65, .28, 1), opacity .16s ease-out; }
-.fx-round-band { fill: none; stroke: #795a32; stroke-width: 2; }
-.fx-ready-lamp { fill: #586348; transition: fill .2s; }
-.fx-radio-glyph { fill: none; stroke: #9eb38c; stroke-width: 1.6; opacity: .25; }
-.fx-muzzle-flash { opacity: 0; transform-origin: 332px 32px; }
-.fx-muzzle-flash path:first-child { fill: #e49b50; }
-.fx-muzzle-flash path:last-child { fill: #edd39d; }
-.fx-mechanism[data-phase="initial"] .fx-ready-lamp { fill: #d1b477; }
-.fx-mechanism[data-breech="open"] { --fx-breech-offset: 24px; --fx-lock-angle: -55deg; }
-.fx-mechanism[data-round="waiting"] { --fx-round-opacity: 1; }
-.fx-mechanism[data-round="inserting"], .fx-mechanism[data-round="seated"] { --fx-round-offset: 0px; --fx-round-opacity: 1; }
-.fx-mechanism[data-phase="loading"] .fx-ready-lamp, .fx-mechanism[data-phase="breech-close"] .fx-ready-lamp { fill: #d1b477; }
-/* The block closes first; only then does the handle turn into its lock. */
-.fx-mechanism[data-phase="breech-close"] .fx-lock-lever { transition-delay: .24s; }
-.fx-mechanism[data-breech="locked"] .fx-ready-lamp, .fx-mechanism[data-phase="goal"] .fx-ready-lamp { fill: #b4c69a; }
-.fx-mechanism[data-phase="goal"] .fx-chamber { stroke: #c9b575; }
-.fx-mechanism[data-phase="fire"] .fx-recoil-unit { animation: fx-cannon-recoil .34s ease-out both; }
-.fx-mechanism[data-phase="fire"] .fx-muzzle-flash { animation: fx-muzzle .28s ease-out both; }
-.fx-mechanism[data-phase="flight"] .fx-ready-lamp, .fx-mechanism[data-phase="impact"] .fx-ready-lamp { fill: var(--orange); }
-.fx-mechanism[data-phase="radio"] .fx-radio-glyph { animation: fx-radio-signal .72s ease-out both; }
-.fx-mechanism[data-phase="complete"] .fx-ready-lamp { fill: #bfcca8; }
-.fx-mechanism[data-phase="failed"] .fx-ready-lamp { fill: #bd805e; }
 .fx-battle-layer { position: absolute; inset: 0; z-index: 30; width: 100%; height: 100%; overflow: hidden; pointer-events: none; user-select: none; }
 .fx-battle-layer * { pointer-events: none; }
 .fx-effects-enabled .cell.impact { animation: none; }
@@ -650,27 +617,23 @@ html[lang="en"] .fire-button small { font-size: 9px; line-height: 1.5; white-spa
 .fx-radio-pulse { animation: fx-status-radio .72s ease-out both; }
 .fx-radio-pulse::before { box-shadow: 0 0 0 4px #b7c49a20; background: #c1cda9; }
 @keyframes fx-check-turn { to { transform: rotate(360deg); } }
-@keyframes fx-cannon-recoil { 0% { transform: translateX(0); } 18% { transform: translateX(-9px); } 100% { transform: translateX(0); } }
-@keyframes fx-muzzle { 0% { opacity: 0; transform: scale(.6); } 16% { opacity: .9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.3); } }
 @keyframes fx-shockwave { from { opacity: .85; transform: scale(.3); } to { opacity: 0; transform: scale(2.5); } }
 @keyframes fx-impact-core { from { opacity: .75; transform: scale(.4); } to { opacity: 0; transform: scale(1.9); } }
 @keyframes fx-dust { from { opacity: .5; transform: translateY(1px) scale(.45); } to { opacity: 0; transform: translateY(-8px) scale(1.8); } }
 @keyframes fx-sparks { from { opacity: .9; scale: .4; } to { opacity: 0; scale: 1.8; } }
-@keyframes fx-radio-signal { 0% { opacity: .3; } 28% { opacity: 1; } 100% { opacity: .65; } }
 @keyframes fx-status-radio { 0% { color: #b2b595; border-top-color: #66704a40; } 30% { color: #dde4c8; border-top-color: #a6b99b; } 100% { color: #b2b595; border-top-color: #66704a40; } }
-.fx-reduced-motion .fx-muzzle-flash, .fx-reduced-motion .fx-dust, .fx-reduced-motion .fx-sparks { display: none; }
-.fx-mechanism.fx-reduced-motion *, .fx-reduced-motion .fx-shockwave, .fx-reduced-motion .fx-impact-core { animation: none; transition: none; }
+.fx-reduced-motion .fx-dust, .fx-reduced-motion .fx-sparks { display: none; }
+.fx-reduced-motion .fx-shockwave, .fx-reduced-motion .fx-impact-core { animation: none; transition: none; }
 .fx-reduced-motion .fx-shockwave { opacity: .75; }
 .fx-reduced-motion .fx-impact-core { opacity: .25; }
 @media (max-width: 600px) {
   .sequence-status { min-height: 58px; padding: 10px 11px; }
   .sequence-status-title, .sequence-status > strong { font-size: 11px; }
   .sequence-status-detail, .sequence-status > small { font-size: 9px; }
-  .fx-mechanism svg { height: 65px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .check-item.running .check-icon, .fx-radio-pulse, .fx-mechanism * { animation: none !important; transition: none !important; }
-  .fx-muzzle-flash, .fx-dust, .fx-sparks { display: none !important; }
+  .check-item.running .check-icon, .fx-radio-pulse { animation: none !important; transition: none !important; }
+  .fx-dust, .fx-sparks { display: none !important; }
   .fx-shockwave, .fx-impact-core { animation: none !important; }
   .fx-shockwave { opacity: .7; }
   .fx-impact-core { opacity: .25; }
