@@ -242,8 +242,13 @@ export function renderHintContent(level, language, revealedCount) {
   const hints = localized.hints ?? level.hints ?? [];
   const count = Math.max(0, Math.min(hints.length, Number.isFinite(revealedCount) ? Math.floor(revealedCount) : 0));
   const t = key => escapeHintText(translate(locale, key));
-  const visibleHints = hints.slice(0, count).map((hint, index) =>
-    `<div class="hint-item" data-hint-index="${index}"><span>INTEL ${String(index + 1).padStart(2, '0')}</span><p>${escapeHintText(hint)}</p></div>`).join('');
+  const visibleHints = hints.slice(0, count).map((hint, index) => {
+    // Keep the former prefilled formula in the first intel item only.
+    const baseline = index === 0 && typeof level.starter === 'string' && level.starter.trim()
+      ? `<div class="hint-baseline"><strong>${t('hintBaselineTitle')}</strong><code>${escapeHintText(level.starter)}</code><p>${t('hintBaselineBody')}</p></div>`
+      : '';
+    return `<div class="hint-item" data-hint-index="${index}"><span>INTEL ${String(index + 1).padStart(2, '0')}</span>${baseline}<p>${escapeHintText(hint)}</p></div>`;
+  }).join('');
   if (count < hints.length || hints.length === 0) return visibleHints;
 
   const solution = `<div class="hint-item hint-solution"><span>${t('solutionTitle')}</span><code>${escapeHintText(level.solution)}</code><p>${t('solutionBody')}</p></div>`;

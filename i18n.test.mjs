@@ -102,14 +102,40 @@ test('optional notes and legacy levels without explanations preserve normal hint
   }
 });
 
+test('every operation reveals its former default only in the first hint item in both languages', () => {
+  const escape = text => text.replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[character]));
+  for (const level of LEVELS) {
+    assert.ok(level.starter?.trim(), level.id);
+    for (const locale of ['ko', 'en']) {
+      assert.equal(renderHintContent(level, locale, 0), '', `${level.id}: hidden before reveal`);
+      for (let count = 1; count <= level.hints.length; count++) {
+        const html = renderHintContent(level, locale, count);
+        assert.equal((html.match(/class="hint-baseline"/g) ?? []).length, 1, `${level.id}: one baseline`);
+        const firstHint = html.split('data-hint-index="1"')[0];
+        assert.ok(firstHint.includes(`<code>${escape(level.starter)}</code>`), `${level.id}: first hint formula`);
+        assert.ok(firstHint.includes(COPY[locale].hintBaselineTitle));
+        assert.ok(firstHint.includes(COPY[locale].hintBaselineBody));
+        if (count < level.hints.length) assert.doesNotMatch(html, /hint-solution|solution-explanation/);
+      }
+    }
+  }
+  for (const starter of [undefined, '', '   ']) {
+    assert.doesNotMatch(renderHintContent({ ...hintFixture(), starter }, 'en', 1), /hint-baseline/);
+  }
+});
+
 test('hint explanations are rendered as text even when formulas or notes contain HTML-like content', () => {
   const level = hintFixture();
+  level.starter = '<script>"starter" & \'hint\'</script>';
   level.hints[0] = '<img src=x onerror=alert(1)>';
   level.solution = 'x < n && y > 0';
   level.explanation.initial = '<script>alert(1)</script>';
   level.explanation.note = 'Use x < n && y > 0.\nKeep "n" unchanged.';
   const rendered = renderHintContent(level, 'ko', 3);
   assert.doesNotMatch(rendered, /<script|<img/);
+  assert.ok(rendered.includes('&lt;script&gt;&quot;starter&quot; &amp; &#39;hint&#39;&lt;/script&gt;'));
   assert.match(rendered, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.ok(rendered.includes('x &lt; n &amp;&amp; y &gt; 0'));
   assert.ok(rendered.includes('Keep &quot;n&quot; unchanged.'));

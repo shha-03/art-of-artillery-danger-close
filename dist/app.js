@@ -364,7 +364,7 @@ function loadLevel(index) {
   browsingChapter=level().chapter;
   traceInputs=traceInputsForLevel(level()); allowedInputCount=initialStatesForLevel(level()).length;
   selectedLayer=is3d()?(level().enemies[0]?.z??layerValues()[0]):0;
-  $('invariant-input').value=level().starter; $('goal-input').value=isInitializedLevel(level())?level().goalSolution:'';
+  $('invariant-input').value=''; $('goal-input').value=isInitializedLevel(level())?level().goalSolution:'';
   $('goal-input').readOnly=isInitializedLevel(level());
   $('target-enemies').hidden=isInitializedLevel(level());
   $('mission-brief').textContent=levelCopy().brief;
@@ -425,6 +425,7 @@ function applyOrderResult(result,mode,expression) {
 }
 async function fire(mode) {
   if(busy||battle.finished) return;
+  if(!$('invariant-input').value.trim()) { flash('missingInvariant');$('invariant-input').focus();return; }
   if(!$('goal-input').value.trim()) { flash('missingGoal');$('goal-input').focus();return; }
   selectTacticalView('map');
   sequenceAbort?.abort();

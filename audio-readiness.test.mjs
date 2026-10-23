@@ -112,6 +112,23 @@ function withTacticalViews(h) {
   return { map, program, tabs, codeFocus, doc, events, effects };
 }
 
+test('blank invariants cannot start a sequence or consume an order through keyboard firing', async () => {
+  for (const value of ['', '  \n  ']) {
+    for (const mode of ['single', 'salvo']) {
+      const h = harness();
+      let focused = false;
+      Object.assign(h.elements.get('invariant-input'), { value, focus() { focused = true; } });
+      await h.context.fire(mode);
+      assert.equal(focused, true);
+      assert.equal(h.preparations.length, 0);
+      assert.equal(h.calls.orders.length, 0);
+      assert.equal(h.sequences.length, 0);
+      assert.equal(h.context.busy, false);
+      assert.equal(h.context.battle.remaining, 6);
+    }
+  }
+});
+
 test('the first order waits for audio readiness before constructing its verifier and retains the requested inputs', async () => {
   const h = harness();
   const firing = h.context.fire('salvo');
