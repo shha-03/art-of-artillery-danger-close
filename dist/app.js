@@ -1,5 +1,5 @@
 import { parseExpression, evaluate, initialStatesForLevel, traceInputsForLevel, createBattle, order, formatEngineError } from './engine.js';
-import { LEVELS } from './levels.js';
+import { LEVELS, CHAPTERS } from './levels.js';
 import { LANGUAGE_STORAGE_KEY, resolveLanguage, translate } from './i18n.js';
 import { applyStaticTranslations } from './ui-copy.js';
 
@@ -13,6 +13,7 @@ const unitIcons = {
   friendly: '<svg class="unit-icon" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 5l12 5v10c0 7-7 12-12 15C15 32 8 27 8 20V10z" fill="currentColor" opacity=".14"/><path d="M20 5l12 5v10c0 7-7 12-12 15C15 32 8 27 8 20V10z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 13v13m-6-6h12" stroke="currentColor" stroke-width="2.5"/></svg>'
 };
 let levelIndex = 0, selectedInitialIndex = 0, battle, lastAnalysis = null, records = [], selectedTargets = new Set();
+let browsingChapter = CHAPTERS[0].id;
 let traceInputs = [], allowedInputCount = 0;
 let preview = true, traceVisible = false, busy = false, sound = false, audioContext = null;
 let witness = null, impacts = [], hintCount = 1, turnToken = 0, toastTimer;
@@ -30,6 +31,10 @@ let language = resolveLanguage(savedLanguage, navigator.languages || [navigator.
 let feedbackState = { type: 'ready' }, toastKey = null;
 const t = (key, parameters) => translate(language, key, parameters);
 const levelCopy = (l = level()) => language === 'en' ? l.en : l;
+const chapterCopy = chapter => language === 'en' ? chapter.en : chapter;
+const chapterLevels = id => LEVELS.map((mission, index) => ({ mission, index })).filter(({mission}) => mission.chapter === id);
+const completedCount = missions => missions.filter(mission => best[mission.id] !== undefined).length;
+const missionStatus = mission => best[mission.id] !== undefined ? t('missionBest', {score:best[mission.id]}) : t('missionUnfinished');
 
 function level() { return LEVELS[levelIndex]; }
 function flash(messageKey) {
@@ -59,7 +64,45 @@ function previewCandidates() {
   return result.sort((a,b)=>priority[a.type]-priority[b.type] || a.x-b.x || a.y-b.y);
 }
 function renderTabs() {
-  $('mission-tabs').innerHTML = LEVELS.map((l,i)=>`<button class="mission-tab ${i===levelIndex?'active':''}" data-level="${i}" ${busy?'disabled':''} aria-current="${i===levelIndex?'step':'false'}"><span class="mission-index">${esc(l.id)}</span><span class="mission-name">${esc(levelCopy(l).name)}<small>${esc(l.subtitle)}</small></span><span class="mission-check">${best[l.id]!==undefined?`${best[l.id]} PT`:'↗'}</span></button>`).join('');
+  const chapter = CHAPTERS.find(item => item.id === browsingChapter);
+  const missions = chapterLevels(browsingChapter);
+  $('chapter-select').innerHTML = CHAPTERS.map(item=>`<option value="${item.id}">${esc(t('chapterOption',{number:pad(item.id),name:chapterCopy(item).name}))}</option>`).join('');
+  $('chapter-select').value=String(browsingChapter);
+  $('chapter-description').textContent=chapterCopy(chapter).description;
+  $('chapter-difficulty').textContent=t('chapterDifficulty',{number:CHAPTERS.indexOf(chapter)+1,total:CHAPTERS.length});
+  $('campaign-progress').textContent=t('campaignProgress',{completed:completedCount(LEVELS),total:LEVELS.length});
+  $('chapter-progress').textContent=t('chapterProgress',{completed:completedCount(missions.map(item=>item.mission)),total:missions.length});
+  $('mission-tabs').innerHTML = missions.map(({mission:l,index:i})=>`<button class="mission-tab ${i===levelIndex?'active':''}" data-level="${i}" ${busy?'disabled':''} aria-current="${i===levelIndex?'step':'false'}" aria-label="${esc(t('missionChoice',{number:i+1,name:levelCopy(l).name,status:missionStatus(l)}))}"><span class="mission-index">${pad(i+1)}</span><span class="mission-name">${esc(levelCopy(l).name)}<small>${esc(levelCopy(l).concept)}</small></span><span class="mission-check">${best[l.id]!==undefined?`✓ ${best[l.id]} PT`:'↗'}</span></button>`).join('');
+  $('current-round').textContent=t('currentRound',{number:pad(levelIndex+1),total:LEVELS.length,name:levelCopy().name});
+  $('previous-round').disabled=busy||levelIndex===0;
+  $('next-round').disabled=busy;
+  $('next-round').textContent=t(levelIndex<LEVELS.length-1?'nextMission':'campaignOverview');
+  $('overview-button').disabled=busy;
+  $('operation-label').textContent=t('operationNumber',{number:pad(levelIndex+1),total:LEVELS.length});
+  $('mission-concept').textContent=t('learningFocus',{concept:levelCopy().concept});
+  if($('campaign-dialog').open)renderOverview();
+}
+function renderOverview() {
+  $('overview-progress').textContent=t('campaignProgress',{completed:completedCount(LEVELS),total:LEVELS.length});
+  $('campaign-chapters').innerHTML=CHAPTERS.map(chapter=>{
+    const missions=chapterLevels(chapter.id), copy=chapterCopy(chapter);
+    return `<section class="overview-chapter" aria-labelledby="overview-chapter-${chapter.id}"><div class="overview-chapter-heading"><h3 id="overview-chapter-${chapter.id}"><span>${pad(chapter.id)}</span>${esc(copy.name)}</h3><span>${esc(t('chapterProgress',{completed:completedCount(missions.map(item=>item.mission)),total:missions.length}))}</span></div><p>${esc(copy.description)}</p><div class="overview-grid">${missions.map(({mission,index})=>`<button class="overview-mission ${index===levelIndex?'is-current':''} ${best[mission.id]!==undefined?'is-complete':''}" data-level="${index}" aria-current="${index===levelIndex?'step':'false'}" ${busy?'disabled':''}><span class="overview-number">${pad(index+1)}</span><span class="overview-name">${esc(levelCopy(mission).name)}</span><small>${esc(levelCopy(mission).concept)}</small><span class="overview-status">${index===levelIndex?`${esc(t('currentMission'))} · `:''}${esc(missionStatus(mission))}</span></button>`).join('')}</div></section>`;
+  }).join('');
+}
+function showOverview() {
+  if(busy)return;
+  renderOverview();openDialog('campaign-dialog');
+}
+function selectRound(index) {
+  if(busy||!Number.isInteger(index)||index<0||index>=LEVELS.length)return;
+  if($('campaign-dialog').open)closeDialog('campaign-dialog');
+  if(index===levelIndex){browsingChapter=level().chapter;renderTabs();return;}
+  loadLevel(index);
+}
+function nextRound() {
+  if(busy)return;
+  if(levelIndex===LEVELS.length-1)showOverview();
+  else selectRound(levelIndex+1);
 }
 function renderInitialInputs() {
   const condition=level().initialCondition, predicate=condition!==undefined;
@@ -100,7 +143,7 @@ function renderMap() {
   for(const p of impacts) overlay+=`<path class="shell-trail" d="M -30 ${l.size*100+50} Q ${p.x*100-100} ${Math.max(-50,(l.size-1-p.y)*100-180)} ${xy(p).replace(',',' ')}"/>`;
   cells.push(`<svg class="trace-layer" viewBox="0 0 ${l.size*100} ${l.size*100}" aria-hidden="true">${overlay}</svg>`);
   $('grid').style.setProperty('--size',l.size); $('grid').innerHTML=cells.join('');
-  $('map-sector').textContent=`SECTOR ${String.fromCharCode(65+levelIndex)} · ${pad(l.size)} × ${pad(l.size)}`;
+  $('map-sector').textContent=`SECTOR ${pad(levelIndex+1)} · ${pad(l.size)} × ${pad(l.size)}`;
   $('map-status').textContent = battle.finished ? t(battle.cleared?'mapCleared':'mapEnded') : candidates.length?t('mapCandidates',{count:candidates.length,point:point(candidates[0]),status:t(lastAnalysis?.valid?'verified':'pending')}):t('noCandidates');
   $('preview-button').classList.toggle('active',preview); $('preview-button').setAttribute('aria-pressed',String(preview));
   $('trace-button').classList.toggle('active',traceVisible); $('trace-button').setAttribute('aria-pressed',String(traceVisible));
@@ -162,9 +205,9 @@ function invalidateAnalysis() {
 }
 function loadLevel(index) {
   levelIndex=index; selectedInitialIndex=0; battle=createBattle(level()); lastAnalysis=null;records=[];selectedTargets=new Set();witness=null;impacts=[];hintCount=1;busy=false;turnToken++;
+  browsingChapter=level().chapter;
   traceInputs=traceInputsForLevel(level()); allowedInputCount=initialStatesForLevel(level()).length;
   $('invariant-input').value=level().starter; $('goal-input').value='';
-  $('operation-label').textContent=`OPERATION ${level().id} / ${pad(LEVELS.length)}`;
   $('mission-brief').textContent=levelCopy().brief;
   $('program-code').innerHTML=level().code.split('\n').map((line,i)=>`<span class="code-line"><span class="line-number">${pad(i+1)}</span><span>${esc(line).replace(/\b(while|if|else)\b/g,'<span class="code-keyword">$1</span>')}</span></span>`).join('');
   feedbackState={type:'ready'};
@@ -237,7 +280,7 @@ function renderResult() {
   $('result-copy').textContent=clear?t('resultClear',{name:levelCopy().name,instruction:t(battle.friendlyKills?'resultImprove':'resultBonus')}):t('resultRetry');
   $('result-score').textContent=battle.score;
   $('result-stats').innerHTML=`<div><strong>${battle.enemyKills}</strong><span>${esc(t('enemyKills'))}</span></div><div><strong>${battle.friendlyKills}</strong><span>${esc(t('friendlyLosses'))}</span></div><div><strong>${battle.remaining}</strong><span>${esc(t('remaining'))}</span></div>`;
-  $('result-next').textContent=t(levelIndex<LEVELS.length-1?'nextMission':'firstMission');
+  $('result-next').textContent=t(levelIndex<LEVELS.length-1?'nextMission':'campaignOverview');
 }
 function renderHints() {
   $('hint-list').innerHTML=levelCopy().hints.slice(0,hintCount).map((h,i)=>`<div class="hint-item"><span>INTEL ${pad(i+1)}</span><p>${esc(h)}</p></div>`).join('')+(hintCount===level().hints.length?`<div class="hint-item"><span>${esc(t('solutionTitle'))}</span><code>${esc(level().solution)}</code><p>${esc(t('solutionBody'))}</p></div>`:'');
@@ -260,7 +303,15 @@ function changeLanguage(nextLanguage) {
 }
 
 $('language-select').addEventListener('change',e=>changeLanguage(e.target.value));
-$('mission-tabs').addEventListener('click',e=>{const b=e.target.closest('[data-level]');if(b&&!busy)loadLevel(Number(b.dataset.level));});
+$('chapter-select').addEventListener('change',e=>{
+  const chapter=Number(e.target.value);
+  if(CHAPTERS.some(item=>item.id===chapter)){browsingChapter=chapter;renderTabs();}
+});
+$('mission-tabs').addEventListener('click',e=>{const b=e.target.closest('[data-level]');if(b)selectRound(Number(b.dataset.level));});
+$('campaign-chapters').addEventListener('click',e=>{const b=e.target.closest('[data-level]');if(b)selectRound(Number(b.dataset.level));});
+$('overview-button').addEventListener('click',showOverview);
+$('previous-round').addEventListener('click',()=>selectRound(levelIndex-1));
+$('next-round').addEventListener('click',nextRound);
 $('initial-inputs').addEventListener('click',e=>{const b=e.target.closest('[data-initial-index]');if(!b)return;selectedInitialIndex=Number(b.dataset.initialIndex);traceVisible=true;renderInitialInputs();renderMap();});
 $('grid').addEventListener('click',e=>{const b=e.target.closest('[data-cell]');if(!b||busy||battle.finished)return;const k=b.dataset.cell;selectedTargets.has(k)?selectedTargets.delete(k):selectedTargets.add(k);setSelectedGoal();});
 $('grid').addEventListener('pointerover',e=>{const b=e.target.closest('[data-cell]');if(b)$('hover-coordinate').textContent=`COORDINATE (${b.dataset.cell.replace(',',', ')})`;});
@@ -281,7 +332,7 @@ $('domain-button').addEventListener('click',()=>openDialog('help-dialog'));
 $('hint-button').addEventListener('click',()=>{renderHints();openDialog('hint-dialog');});
 $('next-hint').addEventListener('click',()=>{hintCount++;renderHints();});
 $('result-retry').addEventListener('click',()=>{closeDialog('result-dialog');loadLevel(levelIndex);});
-$('result-next').addEventListener('click',()=>{closeDialog('result-dialog');loadLevel((levelIndex+1)%LEVELS.length);});
+$('result-next').addEventListener('click',()=>{closeDialog('result-dialog');nextRound();});
 $('sound-button').addEventListener('click',()=>{sound=!sound;renderSound();if(sound)playSound(true);});
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>closeDialog(b.dataset.close)));
 document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();}}));

@@ -13,6 +13,12 @@ export function resolveLanguage(saved, preferred = []) {
 export const COPY = {
   ko: {
     enemy: '적군', friendly: '아군', neutral: '중립', hit: '포격 완료',
+    chapterOption: 'CH {number} · {name}', chapterDifficulty: '훈련 난도 {number} / {total}',
+    campaignProgress: '전체 {total}개 작전 중 {completed}개 완료', chapterProgress: '챕터 {completed} / {total} 완료',
+    missionBest: '완료 · 최고 {score}점', missionUnfinished: '미완료', currentMission: '현재 작전',
+    missionChoice: '라운드 {number}: {name} · {status}',
+    currentRound: '현재 {number} / {total} · {name}', operationNumber: '라운드 {number} / {total}',
+    learningFocus: '훈련 과제 · {concept}', campaignOverview: '캠페인 개요 →',
     cellLabel: '좌표 {x}, {y}: {unit}{objective}', objectiveSuffix: ', 목표 영역',
     cellTitle: '({x}, {y}) {unit} · 클릭해서 목표 선택',
     coordinatePrompt: '목표 좌표를 지정하라',
@@ -73,6 +79,12 @@ export const COPY = {
   },
   en: {
     enemy: 'Enemy', friendly: 'Friendly', neutral: 'Neutral', hit: 'Already struck',
+    chapterOption: 'CH {number} · {name}', chapterDifficulty: 'Difficulty {number} / {total}',
+    campaignProgress: '{completed} of {total} operations complete', chapterProgress: 'Chapter {completed} / {total} complete',
+    missionBest: 'Complete · Best {score} pts', missionUnfinished: 'Incomplete', currentMission: 'Current operation',
+    missionChoice: 'Round {number}: {name} · {status}',
+    currentRound: 'Current {number} / {total} · {name}', operationNumber: 'ROUND {number} / {total}',
+    learningFocus: 'Training focus · {concept}', campaignOverview: 'Campaign overview →',
     cellLabel: 'Coordinate {x}, {y}: {unit}{objective}', objectiveSuffix: ', objective area',
     cellTitle: '({x}, {y}) {unit} · Click to designate target',
     coordinatePrompt: 'Designate target coordinates',

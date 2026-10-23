@@ -479,3 +479,77 @@ html[lang="en"] .fire-button small { font-size: 9px; line-height: 1.5; white-spa
   html[lang="en"] .fire-button { gap: 6px; }
   html[lang="en"] .fire-button small { font-size: 9px; }
 }
+
+/* Campaign navigation keeps the current battlefield independent of browsing. */
+.campaign-nav { margin-bottom: 22px; }
+.campaign-toolbar { display: grid; grid-template-columns: minmax(250px, 1fr) auto auto; align-items: center; gap: 18px; }
+.chapter-control { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.chapter-control label { flex: 0 0 auto; color: var(--faint); font-size: 10px; }
+.chapter-control select { width: min(100%, 310px); min-width: 0; min-height: 44px; padding: 9px 30px 9px 12px; border: 1px solid var(--line); border-radius: 2px; color: var(--cream); background: var(--panel); font: 600 12px var(--sans); }
+.chapter-control select:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.campaign-progress { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; color: var(--muted); font-size: 11px; }
+.campaign-progress strong { font-weight: 500; }
+.campaign-progress span { color: var(--orange); font-family: var(--mono); font-size: 9px; }
+.campaign-toolbar > .small-button { padding-right: 0; white-space: nowrap; }
+.chapter-brief { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 7px 0 8px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.chapter-brief p { margin: 0; }
+.chapter-brief > span { flex-shrink: 0; color: var(--sage); font-size: 10px; }
+.campaign-nav .mission-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 16px; overflow: visible; margin: 0; }
+.campaign-nav .mission-tab { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 3px 9px; min-width: 0; min-height: 67px; margin: 0; padding: 10px 6px 11px 0; white-space: normal; }
+.campaign-nav .mission-index { padding-top: 2px; }
+.campaign-nav .mission-name { min-width: 0; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.campaign-nav .mission-name small { margin-top: 4px; font-family: var(--sans); font-size: 10px; line-height: 1.4; letter-spacing: 0; }
+.campaign-nav .mission-check { grid-column: 2; justify-self: start; margin: 2px 0 0; font-size: 9px; }
+.campaign-route { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr); align-items: center; gap: 12px; }
+.campaign-route > button:first-child { justify-self: start; text-align: left; }
+.campaign-route > button:last-child { justify-self: end; text-align: right; }
+.campaign-route > span { color: var(--muted); font-size: 11px; text-align: center; overflow-wrap: anywhere; }
+.mission-concept { margin: 15px 0 -3px; color: var(--orange); font-size: 11px; font-weight: 600; line-height: 1.6; }
+.campaign-dialog { width: min(930px, calc(100% - 32px)); }
+.overview-progress { margin: 12px 0 4px; color: var(--sage); font-family: var(--mono); font-size: 12px; }
+.overview-chapter { margin-top: 25px; }
+.overview-chapter-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.overview-chapter-heading h3 { margin: 0; font-size: 15px; font-weight: 650; }
+.overview-chapter-heading h3 > span { margin-right: 10px; color: var(--orange); font-family: var(--mono); font-size: 11px; }
+.overview-chapter-heading > span { flex-shrink: 0; color: var(--sage); font-size: 10px; }
+.overview-chapter > p { margin: 6px 0 12px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+.overview-mission { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 2px; background: #252d20; text-align: left; }
+.overview-mission:hover { border-color: #788368; background: #303929; }
+.overview-mission.is-current { border-color: var(--orange); background: #342f23; }
+.overview-number { color: var(--faint); font-family: var(--mono); font-size: 10px; }
+.overview-mission.is-current .overview-number { color: var(--orange); }
+.overview-name { color: var(--cream); font-size: 12px; font-weight: 650; line-height: 1.45; overflow-wrap: anywhere; }
+.overview-mission > small { color: var(--muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.overview-status { margin-top: auto; padding-top: 6px; color: var(--faint); font-size: 9px; line-height: 1.5; }
+.overview-mission.is-complete .overview-status { color: var(--sage); }
+@media (max-width: 900px) {
+  .campaign-toolbar { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; }
+  .campaign-progress { grid-column: 1 / -1; grid-row: 2; flex-direction: row; align-items: baseline; justify-content: space-between; }
+  .campaign-toolbar > .small-button { grid-column: 2; grid-row: 1; }
+  .chapter-control { gap: 8px; }
+  .chapter-brief { margin-top: 10px; }
+  .campaign-nav .mission-tabs { gap: 0 12px; }
+  .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .campaign-nav { margin-bottom: 18px; }
+  .chapter-control { display: block; }
+  .chapter-control label { display: block; margin-bottom: 4px; font-size: 9px; }
+  .chapter-control select { width: 100%; padding-left: 9px; font-size: 11px; }
+  .campaign-toolbar > .small-button { align-self: end; font-size: 10px; }
+  .campaign-progress { font-size: 10px; }
+  .chapter-brief { flex-wrap: wrap; gap: 3px 12px; font-size: 10px; }
+  .chapter-brief > span { font-size: 9px; }
+  .campaign-nav .mission-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 15px; }
+  .campaign-nav .mission-tab { min-height: 77px; }
+  .campaign-nav .mission-name { font-size: 11px; }
+  .campaign-nav .mission-name small { font-size: 9px; }
+  .campaign-route { grid-template-columns: 1fr 1fr; gap: 0 12px; padding-top: 10px; }
+  .campaign-route > span { grid-column: 1 / -1; grid-row: 1; font-size: 10px; }
+  .campaign-route > button { grid-row: 2; font-size: 10px; }
+  .overview-chapter-heading { flex-wrap: wrap; gap: 3px 10px; }
+  .overview-chapter-heading h3 { font-size: 14px; }
+  .overview-mission { padding: 10px; }
+  .overview-name { font-size: 11px; }
+}

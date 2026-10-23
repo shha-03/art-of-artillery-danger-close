@@ -1,4 +1,8 @@
-export const LEVELS = [
+import { BASIC_LEVELS } from './levels-basic.js';
+import { ADVANCED_LEVELS } from './levels-advanced.js';
+
+// Keep legacy IDs stable so completed operations retain their saved scores.
+const LEGACY_LEVELS = [
   {
     id: '01',
     name: '덧셈 이송',
@@ -168,3 +172,35 @@ export const LEVELS = [
     goalSolution: 'x >= 0 && x < 3 && y == 0',
   },
 ];
+
+export const CHAPTERS = [
+  { id: 1, name: '기초 사격', description: '변수의 범위와 합·차를 추적하라. 초기 성립과 유지의 기본을 확보한다.', en: { name: 'Basic Fire Control', description: 'Track bounds, sums, and differences. Establish initiation and preservation.' } },
+  { id: 2, name: '분기와 입력', description: '분기마다 유지되는 조건을 확보하라. 부호·순서·입력 가정을 함께 다룬다.', en: { name: 'Branches & Inputs', description: 'Keep conditions valid across branches. Account for signs, ordering, and input assumptions.' } },
+  { id: 3, name: '누적 계산', description: '처리한 양과 남은 계산을 연결하라. 나머지 관계에서 이차식까지 확장한다.', en: { name: 'Accumulation', description: 'Relate completed work to what remains. Advance from remainders to quadratic relations.' } },
+  { id: 4, name: '비선형 관계', description: '곱·약수·기하 관계를 결합하라. 경계 조건을 함께 검증해야 목표가 보장된다.', en: { name: 'Nonlinear Relations', description: 'Combine products, divisibility, and geometry. Preserve the bounds needed to prove the objective.' } },
+  { id: 5, name: '종합 검증', description: '탐색·최대공약수·점화식을 분석하라. 논리합과 변환되는 관계로 최종 목표를 증명한다.', en: { name: 'Combined Verification', description: 'Analyze search, GCD, and recurrences. Prove the objective using disjunctions and changing algebraic relations.' } },
+];
+
+const legacyConcepts = {
+  '01': ['합 보존', 'Conservation of a sum'],
+  '02': ['몫·나머지와 가중 합', 'Quotient, remainder, and a weighted sum'],
+  '03': ['누적 합과 남은 삼각수', 'Accumulated sum and remaining triangle'],
+  '04': ['제곱근과 잔여량', 'Square root and remainder'],
+  '05': ['무제약 초기 조건 P = true', 'Unrestricted precondition P = true'],
+};
+const campaignOrder = [
+  '06', '01', '07', '09',
+  '11', '08', '12', '05',
+  '10', '02', '03', '14',
+  '04', '16', '13', '15',
+  '17', '18', '19', '20',
+];
+const missions = new Map([...LEGACY_LEVELS, ...BASIC_LEVELS, ...ADVANCED_LEVELS].map(mission => [mission.id, mission]));
+export const LEVELS = campaignOrder.map((id, index) => {
+  const mission = missions.get(id);
+  if (!mission) throw new Error(`Missing campaign mission: ${id}`);
+  const legacyConcept = legacyConcepts[id];
+  return { ...mission, chapter: Math.floor(index / 4) + 1,
+    concept: legacyConcept?.[0] ?? mission.concept,
+    en: { ...mission.en, concept: legacyConcept?.[1] ?? mission.en.concept } };
+});

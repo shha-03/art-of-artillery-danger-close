@@ -49,8 +49,8 @@ function domainStatesWhere(predicate) {
   return result;
 }
 
-test('the campaign preserves the four mathematical loops and adds coordinate normalization', () => {
-  assert.deepEqual(LEVELS.map((level) => level.id).sort(), [...Object.keys(SPECIFICATIONS), '05']);
+test('the expanded campaign preserves the four mathematical loops and coordinate normalization', () => {
+  for (const id of [...Object.keys(SPECIFICATIONS), '05']) assert.ok(LEVELS.some(level => level.id === id));
 });
 
 for (const level of LEVELS.filter((level) => SPECIFICATIONS[level.id])) {

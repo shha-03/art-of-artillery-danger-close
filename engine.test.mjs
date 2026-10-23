@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 // Import as an ES module independently of a package.json or build tool.
 const engineSource = await readFile(new URL('./dist/engine.js', import.meta.url), 'utf8');
-const { DOMAIN, parseExpression, evaluate, analyze, createBattle, order, formatEngineError } = await import(
+const { DOMAIN, parseExpression, evaluate, analyze, createBattle, order, formatEngineError, initialStatesForLevel } = await import(
   `data:text/javascript;base64,${Buffer.from(engineSource).toString('base64')}`
 );
 
@@ -212,26 +212,28 @@ test('command budget defaults and invalid level data are handled', () => {
   assert.throws(() => createBattle(level({ initial: { x: 33, y: 0 } })));
 });
 
-const levelsSource = await readFile(new URL('./dist/levels.js', import.meta.url), 'utf8');
-const { LEVELS } = await import(`data:text/javascript;base64,${Buffer.from(levelsSource).toString('base64')}`);
+const { LEVELS } = await import('./dist/levels.js');
 
 test('authored starters expose their intended failure and each solution proves its three enemy coordinates', () => {
-  assert.equal(LEVELS.length, 5);
+  assert.equal(LEVELS.length, 20);
   for (const mission of LEVELS) {
     const starter = analyze(mission.starter, mission.goalSolution, mission);
     assert.equal(starter.error, undefined, mission.id);
-    assert.equal(starter.valid, mission.initialCondition === undefined, mission.id);
-    assert.equal(starter.goal.pass, mission.initialCondition !== undefined, mission.id);
+    assert.equal(starter.valid && starter.goal.pass, false, mission.id);
     const solution = analyze(mission.solution, mission.goalSolution, mission);
     assert.equal(solution.valid, true, mission.id);
     assert.equal(solution.goal.pass, true, mission.id);
     assert.equal(solution.exitStateCount, 3, mission.id);
     assert.equal(solution.traceStatus, 'terminated', mission.id);
-    assert.equal(solution.initial.checkedCount, mission.initialCondition !== undefined ? DOMAIN.stateCount : 3, mission.id);
+    assert.equal(solution.initial.checkedCount, initialStatesForLevel(mission).length, mission.id);
     assert.deepEqual(solution.candidates, mission.enemies, mission.id);
     assert.equal(solution.traces.length, 3, mission.id);
     assert.equal(solution.traces.every(run => run.traceStatus === 'terminated'), true, mission.id);
-    assert.deepEqual(solution.traces.map(run => run.trace.at(-1)).sort((a,b)=>a.x-b.x||a.y-b.y), mission.enemies, mission.id);
+    const endpoints = solution.traces.map(run => {
+      const { x, y } = run.trace.at(-1);
+      return { x: x + 0, y: y + 0 }; // Signed zero is the same integer coordinate.
+    }).sort((a,b)=>a.x-b.x||a.y-b.y);
+    assert.deepEqual(endpoints, mission.enemies, mission.id);
     const clear = order(createBattle(mission), mission.solution, mission.goalSolution, 'salvo');
     assert.equal(clear.battle.cleared, true, mission.id);
     assert.equal(clear.battle.friendlyKills, 0, mission.id);
