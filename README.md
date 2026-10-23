@@ -4,7 +4,9 @@ Command artillery by writing loop invariants. Eliminate enemy units while protec
 
 ## Run
 
-Install Node.js with npm, then run this command from the project directory:
+[Play the deployed game](https://art-of-artillery-danger-close.duskykoala25.chatgpt.site/) directly in your browser. No installation is required.
+
+To run the game locally, install Node.js with npm, then run this command from the project directory:
 
 ```sh
 node server.mjs
