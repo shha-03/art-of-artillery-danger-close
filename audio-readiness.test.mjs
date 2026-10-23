@@ -41,6 +41,7 @@ function harness({ sound = true, abortResolves = true, manualSequence = false } 
     $: id => elements.get(id), flash() {}, render() { calls.renders++; },
     renderChecks() {}, renderSound() {}, showResult() {}, playCue() {},
     selectTacticalView() {},
+    ensureShotLayer() {}, shotsInSelectedLayer(shots) { return shots; },
     setFiringPhase(phase) { context.firingPhase = phase; },
     battleEffects: { clear() {} },
     artilleryAudio: {

@@ -54,13 +54,15 @@ export function createBattleEffects({ grid, battlefield }) {
     for (const shot of Array.isArray(shots) ? shots : []) {
       if (!Number.isInteger(shot?.x) || !Number.isInteger(shot?.y)
         || shot.x < 0 || shot.y < 0 || shot.x >= limit || shot.y >= limit) continue;
-      unique.set(`${shot.x},${shot.y}`, { x: shot.x, y: shot.y });
+      if(shot.z!==undefined&&!Number.isInteger(shot.z))continue;
+      const point=shot.z===undefined?{x:shot.x,y:shot.y}:{x:shot.x,y:shot.y,z:shot.z};
+      unique.set(Object.values(point).join(','),point);
       if (unique.size >= 81) break;
     }
     return [...unique.values()];
   };
   const positionFor = (shot) => {
-    const cell = grid.querySelector(`[data-cell="${shot.x},${shot.y}"]`);
+    const cell = grid.querySelector(`[data-cell="${shot.x},${shot.y}${shot.z===undefined?'':`,${shot.z}`}"]`);
     if (!cell) return null;
     const fieldRect = battlefield.getBoundingClientRect();
     const cellRect = cell.getBoundingClientRect();

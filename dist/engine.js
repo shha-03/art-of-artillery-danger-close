@@ -3,7 +3,8 @@ import { UNIT_TYPES, unitPoints } from './unit-types.js';
 /**
  * Danger Close: a dependency-free, finite-state invariant checker.
  *
- * The verification window is {-32,...,32}². We enumerate every state in that
+ * The default verification window is {-32,...,32}². Levels may declare x/y/z
+ * and a separate finite integer interval for each axis. We enumerate every state in that
  * window, including states outside the visible board and unreachable states.
  * Initialized programs accept arbitrary mathematical integer inputs, while
  * this checker explicitly tests a,b in {-4,...,4}². This is not an unbounded proof.
@@ -16,6 +17,7 @@ import { UNIT_TYPES, unitPoints } from './unit-types.js';
 export const DOMAIN = Object.freeze({ min: -32, max: 32, stateCount: 4225 });
 export const INPUT_DOMAIN = Object.freeze({ min: -4, max: 4, stateCount: 81 });
 const PARAMETERS = Object.freeze(['a', 'b', 'n', 'm']);
+const AXES = Object.freeze(['x', 'y', 'z']);
 
 const MAX_SOURCE_LENGTH = 4096;
 const MAX_TOKENS = 1024;
@@ -27,6 +29,8 @@ const ERROR_LABELS = {
 };
 const errorLabel = (label, language) => Object.hasOwn(ERROR_LABELS[language], label)
   ? ERROR_LABELS[language][label] : String(label);
+const coordinateLabel = p => AXES.filter(axis => Object.hasOwn(p, axis)).map(axis => p[axis]).join(', ');
+const windowLabel = p => Object.entries(p.domains ?? {}).map(([axis, range]) => `${axis}: ${range.min}…${range.max}`).join(', ');
 
 const ERROR_MESSAGES = {
   ko: {
@@ -39,27 +43,29 @@ const ERROR_MESSAGES = {
     'comparison-type': () => '비교 대상의 형식 불일치. 같은 종류의 값끼리 비교하라.',
     'nesting-too-deep': () => '중첩 깊이 한도 초과. 괄호와 단항 연산자를 줄여라.',
     'missing-close-parenthesis': () => "닫는 괄호 ')' 누락. 수식을 보완하라.",
-    'expected-operand': (p) => `'${p.token}' 위치에 x, y, a, b, n, m, 숫자 또는 괄호 식을 입력하라.`,
+    'expected-operand': (p) => `'${p.token}' 위치에 x, y, z, a, b, n, m, 숫자 또는 괄호 식을 입력하라.`,
     'unexpected-token': (p) => `잘못 배치된 '${p.token}' 확인. 수식 구성을 점검하라.`,
     'invalid-ast': () => '수식 구조 오류.',
     'zero-remainder-divisor': () => '0으로 나누는 나머지 연산 불가. 제수를 확인하라.',
     'unsupported-ast': () => '미지원 수식 구조 확인.',
     'predicate-type': (p) => `${errorLabel(p.label, 'ko')}: 참/거짓을 나타내는 식을 입력하라.`,
-    'invalid-initial': (p) => `초기 좌표 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
+    'invalid-initial': (p) => p.domains ? `초기 좌표 오류. 축별 정수 검증창을 확인하라: ${windowLabel(p)}.` : `초기 좌표 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
+    'invalid-variables': () => '상태 변수 지정 오류. x, y 또는 x, y, z를 순서대로 지정하라.',
+    'invalid-domains': () => '검증창 지정 오류. 각 상태 변수에 유한한 정수 최솟값과 최댓값을 지정하라.',
     'invalid-initial-states': () => '초기 입력 형식 오류. 하나 이상의 좌표를 배열로 지정하라.',
     'invalid-initializer': () => '초기화 함수 누락. 외부 입력 a, b를 초기 상태와 상수로 변환하라.',
-    'invalid-initialization': () => '초기화 결과 오류. 검증 범위 안의 x, y와 안전한 정수 상수 n, m을 반환하라.',
+    'invalid-initialization': () => '초기화 결과 오류. 모든 상태 변수의 검증창 안 정수 좌표와 안전한 정수 상수 n, m을 반환하라.',
     'ambiguous-initialization': () => '초기화 프로그램에는 initialStates나 initialCondition을 함께 지정할 수 없다.',
     'invalid-battle-inputs': () => '대표 전장 입력 오류. 서로 다른 외부 입력 a, b 세 쌍을 지정하라.',
     'invalid-battle-input': (p) => `대표 전장 입력은 검증창 ${p.min}부터 ${p.max} 안의 정수 a, b를 사용하라.`,
     'duplicate-battle-input': (p) => `대표 전장 입력 (${p.a}, ${p.b}) 중복 확인.`,
-    'duplicate-initial-state': (p) => `초기 입력 중복. 좌표 (${p.x}, ${p.y})는 한 번만 지정하라.`,
+    'duplicate-initial-state': (p) => `초기 입력 중복. 좌표 (${coordinateLabel(p)})는 한 번만 지정하라.`,
     'ambiguous-initial-inputs': () => '초기 입력 지정 충돌. initialCondition과 initialStates 중 하나만 지정하라.',
     'empty-initial-condition': () => '초기 사전조건을 만족하는 좌표 없음. 검증 범위 안에 허용 입력을 지정하라.',
     'invalid-trace-inputs': () => '대표 실행 입력 형식 오류. 하나 이상의 좌표를 배열로 지정하라.',
-    'invalid-trace-input': (p) => `대표 실행 좌표 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
-    'duplicate-trace-input': (p) => `대표 실행 입력 중복. 좌표 (${p.x}, ${p.y})는 한 번만 지정하라.`,
-    'trace-input-excluded': (p) => `대표 실행 입력 (${p.x}, ${p.y})은 초기 사전조건을 위반한다. 허용 좌표를 지정하라.`,
+    'invalid-trace-input': (p) => p.domains ? `대표 실행 좌표 오류. 축별 정수 검증창을 확인하라: ${windowLabel(p)}.` : `대표 실행 좌표 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
+    'duplicate-trace-input': (p) => `대표 실행 입력 중복. 좌표 (${coordinateLabel(p)})는 한 번만 지정하라.`,
+    'trace-input-excluded': (p) => `대표 실행 입력 (${coordinateLabel(p)})은 초기 사전조건을 위반한다. 허용 좌표를 지정하라.`,
     'invalid-board-size': (p) => `전장 크기 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
     'missing-step': () => '프로그램의 한 단계 실행 함수 누락.',
     'missing-coordinate': () => '프로그램 실행 결과에 좌표 누락.',
@@ -81,27 +87,29 @@ const ERROR_MESSAGES = {
     'comparison-type': () => 'Comparison type mismatch. Compare values of the same type.',
     'nesting-too-deep': () => 'Nesting limit exceeded. Reduce parentheses and unary operators.',
     'missing-close-parenthesis': () => "Closing parenthesis ')' missing. Complete the expression.",
-    'expected-operand': (p) => `Expected an operand at '${p.token}'. Enter x, y, a, b, n, m, a number, or a parenthesized expression.`,
+    'expected-operand': (p) => `Expected an operand at '${p.token}'. Enter x, y, z, a, b, n, m, a number, or a parenthesized expression.`,
     'unexpected-token': (p) => `Unexpected token '${p.token}'. Check the expression structure.`,
     'invalid-ast': () => 'Expression structure invalid.',
     'zero-remainder-divisor': () => 'Remainder divisor is zero. Set a nonzero divisor.',
     'unsupported-ast': () => 'Unsupported expression structure detected.',
     'predicate-type': (p) => `${errorLabel(p.label, 'en')}: enter a Boolean expression.`,
-    'invalid-initial': (p) => `Initial coordinates invalid. Use integers from ${p.min} to ${p.max}.`,
+    'invalid-initial': (p) => p.domains ? `Initial coordinates invalid. Check the integer window for every axis: ${windowLabel(p)}.` : `Initial coordinates invalid. Use integers from ${p.min} to ${p.max}.`,
+    'invalid-variables': () => 'State variables invalid. Specify x, y or x, y, z in that order.',
+    'invalid-domains': () => 'Verification windows invalid. Set finite integer minimum and maximum bounds for each state variable.',
     'invalid-initial-states': () => 'Initial input format invalid. Supply a nonempty array of coordinates.',
     'invalid-initializer': () => 'Initialization function missing. Convert external inputs a and b into a state and constants.',
-    'invalid-initialization': () => 'Initialization invalid. Return x and y within the state window and safe integer constants n and m.',
+    'invalid-initialization': () => 'Initialization invalid. Return integer coordinates inside every state window and safe integer constants n and m.',
     'ambiguous-initialization': () => 'An initialized program cannot also specify initialStates or initialCondition.',
     'invalid-battle-inputs': () => 'Battle samples invalid. Supply exactly three distinct external input pairs a and b.',
     'invalid-battle-input': (p) => `Battle samples must use integer a and b within the test window ${p.min} to ${p.max}.`,
     'duplicate-battle-input': (p) => `Duplicate battle input (${p.a}, ${p.b}).`,
-    'duplicate-initial-state': (p) => `Duplicate initial input. Assign coordinates (${p.x}, ${p.y}) only once.`,
+    'duplicate-initial-state': (p) => `Duplicate initial input. Assign coordinates (${coordinateLabel(p)}) only once.`,
     'ambiguous-initial-inputs': () => 'Initial input definitions conflict. Specify either initialCondition or initialStates.',
     'empty-initial-condition': () => 'No coordinates satisfy the initial precondition. Permit at least one input within the verification domain.',
     'invalid-trace-inputs': () => 'Trace input format invalid. Supply a nonempty array of coordinates.',
-    'invalid-trace-input': (p) => `Trace coordinates invalid. Use integers from ${p.min} to ${p.max}.`,
-    'duplicate-trace-input': (p) => `Duplicate trace input. Assign coordinates (${p.x}, ${p.y}) only once.`,
-    'trace-input-excluded': (p) => `Trace input (${p.x}, ${p.y}) violates the initial precondition. Select permitted coordinates.`,
+    'invalid-trace-input': (p) => p.domains ? `Trace coordinates invalid. Check the integer window for every axis: ${windowLabel(p)}.` : `Trace coordinates invalid. Use integers from ${p.min} to ${p.max}.`,
+    'duplicate-trace-input': (p) => `Duplicate trace input. Assign coordinates (${coordinateLabel(p)}) only once.`,
+    'trace-input-excluded': (p) => `Trace input (${coordinateLabel(p)}) violates the initial precondition. Select permitted coordinates.`,
     'invalid-board-size': (p) => `Board size invalid. Use an integer from ${p.min} to ${p.max}.`,
     'missing-step': () => 'Program transition function missing.',
     'missing-coordinate': () => 'Program transition returned no coordinates.',
@@ -246,7 +254,7 @@ export function parseExpression(source) {
       if (token.value === 'true' || token.value === 'false') {
         return { kind: 'literal', value: token.value === 'true', valueType: 'boolean' };
       }
-      if (token.value === 'x' || token.value === 'y' || PARAMETERS.includes(token.value)) {
+      if (AXES.includes(token.value) || PARAMETERS.includes(token.value)) {
         return { kind: 'variable', name: token.value, valueType: 'integer' };
       }
       throw expressionError('expected-operand', { token: token.value }, token.position);
@@ -298,39 +306,111 @@ export function evaluate(ast, state) {
   return visit(ast);
 }
 
-const point = ({ x, y }) => ({ x, y });
+/** Variable declaration is independent of the currently displayed map layer. */
+export function variablesForLevel(level) {
+  const variables = level?.variables ?? ['x', 'y'];
+  if (!Array.isArray(variables) || (variables.length !== 2 && variables.length !== 3)
+    || variables.some((axis, index) => axis !== AXES[index])) {
+    throw engineError('invalid-variables', {}, TypeError);
+  }
+  return [...variables];
+}
+
+export function domainsForLevel(level) {
+  const variables = variablesForLevel(level);
+  if (level?.domains !== undefined && (!level.domains || typeof level.domains !== 'object'
+    || Array.isArray(level.domains) || Object.keys(level.domains).some(axis => !variables.includes(axis)))) {
+    throw engineError('invalid-domains', {}, TypeError);
+  }
+  const domains = {};
+  let stateCount = 1;
+  for (const axis of variables) {
+    const range = level?.domains?.[axis] === undefined ? DOMAIN : level.domains[axis];
+    if (!range || !Number.isSafeInteger(range.min) || !Number.isSafeInteger(range.max) || range.min > range.max) {
+      throw engineError('invalid-domains', {}, TypeError);
+    }
+    stateCount *= range.max - range.min + 1;
+    if (!Number.isSafeInteger(stateCount)) throw engineError('invalid-domains', {}, TypeError);
+    domains[axis] = { min: range.min, max: range.max };
+  }
+  return domains;
+}
+
+function stateSpace(level) {
+  const variables = variablesForLevel(level);
+  const domains = domainsForLevel(level);
+  const stateCount = variables.reduce((count, axis) => count * (domains[axis].max - domains[axis].min + 1), 1);
+  return { variables, domains, stateCount };
+}
+
+function windowReport(space) {
+  // Existing consumers compare this exact legacy shape.
+  if (space.variables.length === 2 && space.variables.every(axis =>
+    space.domains[axis].min === DOMAIN.min && space.domains[axis].max === DOMAIN.max)) return { ...DOMAIN };
+  return { variables: [...space.variables], domains: structuredClone(space.domains), stateCount: space.stateCount };
+}
+
+/** Coordinates only: parameters and unit metadata never affect position identity. */
+export function statePoint(state) {
+  const result = { x: state.x, y: state.y };
+  if (Object.hasOwn(state, 'z')) result.z = state.z;
+  return result;
+}
+export function stateKey(state) {
+  return Object.hasOwn(state, 'z') ? `${state.x},${state.y},${state.z}` : `${state.x},${state.y}`;
+}
+
+const point = statePoint;
+const key = stateKey;
+const levelPoint = (state, space) => space.variables.length === 3
+  ? { x: state.x, y: state.y, z: state.z } : { x: state.x, y: state.y };
+const comparePoints = (a, b) => a.x - b.x || a.y - b.y || (a.z ?? 0) - (b.z ?? 0);
 const contextParameters = state => Object.fromEntries(PARAMETERS.filter(name => Object.hasOwn(state, name)).map(name => [name, state[name]]));
 const stateCopy = state => ({ ...point(state), ...contextParameters(state) });
 const unitCopy = (unit) => ({ ...point(unit), ...(unit.branch === undefined ? {} : { branch: unit.branch }) });
-const key = ({ x, y }) => `${x},${y}`;
-const inDomain = (s) => s && Number.isInteger(s.x) && Number.isInteger(s.y)
-  && s.x >= DOMAIN.min && s.x <= DOMAIN.max && s.y >= DOMAIN.min && s.y <= DOMAIN.max;
+const inDomain = (state, space) => state && space.variables.every(axis => Number.isSafeInteger(state[axis])
+  && state[axis] >= space.domains[axis].min && state[axis] <= space.domains[axis].max);
 const onBoard = (s, size) => s.x >= 0 && s.y >= 0 && s.x < size && s.y < size;
+
+/** Exhaustive Cartesian product; returning false stops only this enumeration. */
+function visitSpace(space, parameters, visitor, boardSize) {
+  const dx = space.domains.x, dy = space.domains.y, dz = space.domains.z;
+  const xMin = boardSize === undefined ? dx.min : Math.max(0, dx.min);
+  const xMax = boardSize === undefined ? dx.max : Math.min(boardSize - 1, dx.max);
+  const yMin = boardSize === undefined ? dy.min : Math.max(0, dy.min);
+  const yMax = boardSize === undefined ? dy.max : Math.min(boardSize - 1, dy.max);
+  for (let x = xMin; x <= xMax; x++) for (let y = yMin; y <= yMax; y++) {
+    if (dz) {
+      for (let z = dz.min; z <= dz.max; z++) if (visitor({ x, y, z, ...parameters }) === false) return false;
+    } else if (visitor({ x, y, ...parameters }) === false) return false;
+  }
+  return true;
+}
 
 export const isInitializedLevel = level => level?.initialize !== undefined;
 
-function initializeInput(level, a, b) {
+function initializeInput(level, a, b, space) {
   if (typeof level.initialize !== 'function') throw engineError('invalid-initializer', {}, TypeError);
   const initialized = level.initialize(Object.freeze({ a, b }));
-  if (!inDomain(initialized) || !Number.isSafeInteger(initialized.n) || !Number.isSafeInteger(initialized.m)) {
+  if (!inDomain(initialized, space) || !Number.isSafeInteger(initialized.n) || !Number.isSafeInteger(initialized.m)) {
     throw engineError('invalid-initialization', {}, TypeError);
   }
   // Raw input identity belongs to the engine, never to the initializer's return value.
-  return { ...point(initialized), a, b, n: initialized.n, m: initialized.m };
+  return { ...levelPoint(initialized, space), a, b, n: initialized.n, m: initialized.m };
 }
 
-function initializedVerificationCases(level) {
+function initializedVerificationCases(level, space = stateSpace(level)) {
   if (level.initialStates !== undefined || level.initialCondition !== undefined) {
     throw engineError('ambiguous-initialization', {}, TypeError);
   }
   const cases = [];
   for (let a = INPUT_DOMAIN.min; a <= INPUT_DOMAIN.max; a++) {
-    for (let b = INPUT_DOMAIN.min; b <= INPUT_DOMAIN.max; b++) cases.push(initializeInput(level, a, b));
+    for (let b = INPUT_DOMAIN.min; b <= INPUT_DOMAIN.max; b++) cases.push(initializeInput(level, a, b, space));
   }
   return cases;
 }
 
-function initializedBattlefieldCases(level) {
+function initializedBattlefieldCases(level, space = stateSpace(level)) {
   if (!Array.isArray(level.battleInputs) || level.battleInputs.length !== 3) {
     throw engineError('invalid-battle-inputs', {}, TypeError);
   }
@@ -344,7 +424,7 @@ function initializedBattlefieldCases(level) {
     const id = `${input.a},${input.b}`;
     if (seen.has(id)) throw engineError('duplicate-battle-input', { a: input.a, b: input.b }, TypeError);
     seen.add(id);
-    return initializeInput(level, input.a, input.b);
+    return initializeInput(level, input.a, input.b, space);
   });
 }
 
@@ -372,17 +452,13 @@ const hasInitialCondition = (level) => level?.initialCondition !== undefined;
  * finite input sets retain authored order. Both forms return independent copies.
  */
 export function initialStatesForLevel(level) {
-  if (isInitializedLevel(level)) return initializedVerificationCases(level);
+  const space = stateSpace(level);
+  if (isInitializedLevel(level)) return initializedVerificationCases(level, space);
   if (hasInitialCondition(level)) {
     if (level.initialStates !== undefined) throw engineError('ambiguous-initial-inputs', {}, TypeError);
     const condition = predicate(level.initialCondition, 'initialCondition');
     const initialStates = [];
-    for (let x = DOMAIN.min; x <= DOMAIN.max; x++) {
-      for (let y = DOMAIN.min; y <= DOMAIN.max; y++) {
-        const state = { x, y };
-        if (evaluate(condition, state)) initialStates.push(state);
-      }
-    }
+    visitSpace(space, {}, state => { if (evaluate(condition, state)) initialStates.push(state); });
     if (!initialStates.length) throw engineError('empty-initial-condition', {}, TypeError);
     return initialStates;
   }
@@ -393,16 +469,17 @@ export function initialStatesForLevel(level) {
   const seen = new Set();
   const initialStates = [];
   for (const state of states) {
-    if (!inDomain(state)) throw engineError('invalid-initial', { min: DOMAIN.min, max: DOMAIN.max }, TypeError);
-    const location = key(state);
-    if (seen.has(location)) throw engineError('duplicate-initial-state', point(state), TypeError);
+    if (!inDomain(state, space)) throw engineError('invalid-initial', { min: DOMAIN.min, max: DOMAIN.max, ...(level.domains ? { domains: space.domains } : {}) }, TypeError);
+    const coordinates = levelPoint(state, space);
+    const location = key(coordinates);
+    if (seen.has(location)) throw engineError('duplicate-initial-state', coordinates, TypeError);
     seen.add(location);
-    initialStates.push(point(state));
+    initialStates.push(coordinates);
   }
   return initialStates;
 }
 
-function selectTraceInputs(level, initialStates) {
+function selectTraceInputs(level, initialStates, space = stateSpace(level)) {
   if (!hasInitialCondition(level)) return initialStates.map(point);
   if (level.traceInputs === undefined) return initialStates.slice(0, 3).map(point);
   if (!Array.isArray(level.traceInputs) || level.traceInputs.length === 0) {
@@ -412,12 +489,13 @@ function selectTraceInputs(level, initialStates) {
   const seen = new Set();
   const traceInputs = [];
   for (const state of level.traceInputs) {
-    if (!inDomain(state)) throw engineError('invalid-trace-input', { min: DOMAIN.min, max: DOMAIN.max }, TypeError);
-    const location = key(state);
-    if (seen.has(location)) throw engineError('duplicate-trace-input', point(state), TypeError);
-    if (!allowed.has(location)) throw engineError('trace-input-excluded', point(state), TypeError);
+    if (!inDomain(state, space)) throw engineError('invalid-trace-input', { min: DOMAIN.min, max: DOMAIN.max, ...(level.domains ? { domains: space.domains } : {}) }, TypeError);
+    const coordinates = levelPoint(state, space);
+    const location = key(coordinates);
+    if (seen.has(location)) throw engineError('duplicate-trace-input', coordinates, TypeError);
+    if (!allowed.has(location)) throw engineError('trace-input-excluded', coordinates, TypeError);
     seen.add(location);
-    traceInputs.push(point(state));
+    traceInputs.push(coordinates);
   }
   return traceInputs;
 }
@@ -429,42 +507,44 @@ export function traceInputsForLevel(level) {
 }
 
 function validateLevel(level) {
+  const space = stateSpace(level);
   const initialStates = initialStatesForLevel(level);
-  const traceInputs = isInitializedLevel(level) ? initializedBattlefieldCases(level) : selectTraceInputs(level, initialStates);
+  const traceInputs = isInitializedLevel(level) ? initializedBattlefieldCases(level, space) : selectTraceInputs(level, initialStates, space);
   if (!Number.isInteger(level.size) || level.size < 1 || level.size > DOMAIN.max + 1) {
     throw engineError('invalid-board-size', { min: 1, max: DOMAIN.max + 1 }, TypeError);
   }
   if (typeof level.step !== 'function') throw engineError('missing-step', {}, TypeError);
-  return { initialStates, traceInputs };
+  return { initialStates, traceInputs, space };
 }
 
-function successor(level, before) {
+function successor(level, before, space) {
   const executionState = stateCopy(before);
   for (const name of PARAMETERS) {
     if (Object.hasOwn(executionState, name)) Object.defineProperty(executionState, name, { writable: false });
   }
   const after = level.step(executionState);
   if (!after || typeof after !== 'object') throw engineError('missing-coordinate', {}, TypeError);
-  // A loop may update only x/y. Returned or mutated parameter values cannot
+  // A loop may update only its declared coordinates. Returned or mutated parameter values cannot
   // change the fixed context against which its invariant is checked.
-  return { ...point(after), ...contextParameters(before) };
+  return { ...levelPoint(after, space), ...contextParameters(before) };
 }
 
-function traceProgram(level, guard, initial) {
+function traceProgram(level, guard, initial, space) {
   const trace = [stateCopy(initial)];
   const visited = new Set();
   let current = stateCopy(initial);
   while (true) {
-    if (!inDomain(current)) return { trace, traceStatus: 'outside-domain' };
+    if (!inDomain(current, space)) return { trace, traceStatus: 'outside-domain' };
     if (!evaluate(guard, current)) return { trace, traceStatus: 'terminated' };
     if (visited.has(key(current))) return { trace, traceStatus: 'cycle' };
     visited.add(key(current));
-    current = successor(level, current);
+    current = successor(level, current, space);
     trace.push(stateCopy(current));
   }
 }
 
 function project(source, level, exitOnly) {
+  const space = stateSpace(level);
   const ast = predicate(source, exitOnly ? 'invariant' : 'goal');
   const guard = exitOnly ? predicate(level.guardSource, 'guard') : null;
   const contexts = isInitializedLevel(level) ? battlefieldCasesForLevel(level) : [{}];
@@ -474,12 +554,11 @@ function project(source, level, exitOnly) {
   const coordinates = new Map();
   for (const context of contexts) {
     const parameters = contextParameters(context);
-    for (let x = 0; x < level.size; x++) for (let y = 0; y < level.size; y++) {
-      const state = { x, y, ...parameters };
+    visitSpace(space, parameters, state => {
       if (evaluate(ast, state) && (!guard || !evaluate(guard, state))) coordinates.set(key(state), point(state));
-    }
+    }, level.size);
   }
-  return [...coordinates.values()].sort((a, b) => a.x - b.x || a.y - b.y);
+  return [...coordinates.values()].sort(comparePoints);
 }
 
 /** Board previews are unverified projections of the three battlefield contexts. */
@@ -513,7 +592,7 @@ export function analyze(source, goalSource, level) {
     checkedStateCount: 0,
   };
   try {
-    const { initialStates, traceInputs } = validateLevel(level);
+    const { initialStates, traceInputs, space } = validateLevel(level);
     const initialized = isInitializedLevel(level);
     const invariant = predicate(source, 'invariant');
     const goal = predicate(goalSource, 'goal');
@@ -523,11 +602,12 @@ export function analyze(source, goalSource, level) {
       result.specification = { pass: null };
       result.contextCount = initialStates.length;
       result.inputWindow = { ...INPUT_DOMAIN };
-      result.stateWindow = { ...DOMAIN };
+      result.stateWindow = windowReport(space);
     }
+    if (space.variables.length === 3 || level.domains !== undefined) result.stateWindow = windowReport(space);
     result.traces = traceInputs.map((initial) => ({
       initial: stateCopy(initial),
-      ...traceProgram(level, guard, initial),
+      ...traceProgram(level, guard, initial, space),
     }));
     result.trace = result.traces[0].trace;
     result.traceStatus = result.traces[0].traceStatus;
@@ -549,14 +629,12 @@ export function analyze(source, goalSource, level) {
     for (const context of contexts) {
       const parameters = contextParameters(context);
       const displayed = !initialized || displayedInputs.has(`${context.a},${context.b}`);
-      for (let x = DOMAIN.min; x <= DOMAIN.max; x++) {
-        for (let y = DOMAIN.min; y <= DOMAIN.max; y++) {
-          const before = { x, y, ...parameters };
+      visitSpace(space, parameters, before => {
           result.checkedStateCount++;
-          if (!evaluate(invariant, before)) continue;
+          if (!evaluate(invariant, before)) return;
           if (evaluate(guard, before)) {
-            const after = successor(level, before);
-            const outsideDomain = !inDomain(after);
+            const after = successor(level, before, space);
+            const outsideDomain = !inDomain(after, space);
             if (outsideDomain || !evaluate(invariant, after)) {
               if (result.preservation.pass) {
                 result.preservation = { pass: false, before, after, outsideDomain };
@@ -570,10 +648,9 @@ export function analyze(source, goalSource, level) {
               result.specification = { pass: false, before };
             }
           }
-        }
-      }
+      });
     }
-    result.candidates = [...projected.values()].sort((a, b) => a.x - b.x || a.y - b.y);
+    result.candidates = [...projected.values()].sort(comparePoints);
     result.valid = result.initial.pass && result.preservation.pass;
     result.objectiveVerified = result.valid && result.goal.pass && (!initialized || result.specification.pass);
   } catch (error) {
@@ -592,17 +669,18 @@ export function analyze(source, goalSource, level) {
   return result;
 }
 
-function copyUnits(units, size, occupied) {
+function copyUnits(units, size, occupied, space) {
   if (!Array.isArray(units)) throw engineError('invalid-layout', {}, TypeError);
   return units.map((unit) => {
-    if (!inDomain(unit) || !onBoard(unit, size)) throw engineError('offboard-unit', {}, TypeError);
+    if (!inDomain(unit, space) || !onBoard(unit, size)) throw engineError('offboard-unit', {}, TypeError);
     if (unit.branch !== undefined && (typeof unit.branch !== 'string' || !Object.hasOwn(UNIT_TYPES, unit.branch))) {
       throw engineError('invalid-unit-branch', { branch: String(unit.branch) }, TypeError);
     }
-    const location = key(unit);
+    const coordinates = levelPoint(unit, space);
+    const location = key(coordinates);
     if (occupied.has(location)) throw engineError('duplicate-unit', {}, TypeError);
     occupied.add(location);
-    return unitCopy(unit);
+    return unitCopy({ ...coordinates, branch: unit.branch });
   });
 }
 
@@ -619,19 +697,21 @@ function updateBattleStatus(battle) {
 
 /** Initial arrays are preserved in battle.level; battle.enemies/allies are alive. */
 export function createBattle(level) {
-  const { initialStates, traceInputs } = validateLevel(level);
+  const { initialStates, traceInputs, space } = validateLevel(level);
   predicate(level.guardSource, 'guard');
   const budget = level.commands ?? level.budget ?? 6;
   if (!Number.isSafeInteger(budget) || budget < 0) throw engineError('invalid-command-budget', {}, TypeError);
   const occupied = new Set();
-  const enemies = copyUnits(level.enemies ?? [], level.size, occupied);
-  const allies = copyUnits(level.allies ?? [], level.size, occupied);
+  const enemies = copyUnits(level.enemies ?? [], level.size, occupied, space);
+  const allies = copyUnits(level.allies ?? [], level.size, occupied, space);
   const normalizedLevel = {
     ...level,
     initial: stateCopy(traceInputs[0]),
     traceInputs: traceInputs.map(stateCopy),
     enemies: enemies.map(unitCopy),
     allies: allies.map(unitCopy),
+    ...(level.variables === undefined ? {} : { variables: [...space.variables] }),
+    ...(level.domains === undefined ? {} : { domains: structuredClone(space.domains) }),
   };
   // Keep the precondition as the source of truth. Adding its enumerated states
   // would create two conflicting initial-input definitions on the next order.
@@ -692,7 +772,7 @@ function resolveOrder(battle, analysis, mode) {
       const unit = enemies.get(key(cell)) ?? allies.get(key(cell));
       return { ...unitCopy(unit ?? cell), type: classify(cell), points: unit ? unitPoints(unit) : 0 };
     })
-    .sort((a, b) => priority[a.type] - priority[b.type] || a.x - b.x || a.y - b.y);
+    .sort((a, b) => priority[a.type] - priority[b.type] || comparePoints(a, b));
   if (!candidates.length) return outcome({ analysis, reason: 'no-candidates' });
   const shots = mode === 'single' ? candidates.slice(0, 1) : candidates;
   const shotKeys = new Set(shots.map(key));
@@ -737,7 +817,7 @@ export function* orderStages(battle, invariantSource, goalSource, mode = 'single
     candidates: [], trace: [], traces: [], exitStateCount: 0, checkedStateCount: 0,
     ...(initialized ? {
       specification: skipped(),
-      inputWindow: { ...INPUT_DOMAIN }, stateWindow: { ...DOMAIN },
+      inputWindow: { ...INPUT_DOMAIN },
     } : {}),
   };
   const snapshot = stage => ({ stage, analysis: structuredClone(analysis) });
@@ -747,9 +827,10 @@ export function* orderStages(battle, invariantSource, goalSource, mode = 'single
     analysis.objectiveVerified = false;
     Object.assign(analysis, errorDetails(error), { errorStage: stage, errorCheck: check });
   };
-  let initialStates, traceInputs, invariant, guard;
+  let initialStates, traceInputs, invariant, guard, space;
   try {
-    ({ initialStates, traceInputs } = validateLevel(level));
+    ({ initialStates, traceInputs, space } = validateLevel(level));
+    if (initialized || space.variables.length === 3 || level.domains !== undefined) analysis.stateWindow = windowReport(space);
     if (initialized) analysis.contextCount = initialStates.length;
     invariant = predicate(invariantSource, 'invariant');
     analysis.initial = { pass: true, checkedCount: 0 };
@@ -768,11 +849,7 @@ export function* orderStages(battle, invariantSource, goalSource, mode = 'single
   const visitStates = visitor => {
     for (const context of contexts) {
       const parameters = contextParameters(context);
-      for (let x = DOMAIN.min; x <= DOMAIN.max; x++) {
-        for (let y = DOMAIN.min; y <= DOMAIN.max; y++) {
-          if (visitor({ x, y, ...parameters }) === false) return;
-        }
-      }
+      if (visitSpace(space, parameters, visitor) === false) return;
     }
   };
   try {
@@ -781,8 +858,8 @@ export function* orderStages(battle, invariantSource, goalSource, mode = 'single
     visitStates(before => {
       analysis.checkedStateCount++;
       if (!evaluate(invariant, before) || !evaluate(guard, before)) return;
-      const after = successor(level, before);
-      const outsideDomain = !inDomain(after);
+      const after = successor(level, before, space);
+      const outsideDomain = !inDomain(after, space);
       if (outsideDomain || !evaluate(invariant, after)) {
         analysis.preservation = { pass: false, before, after, outsideDomain };
         return false;
@@ -791,7 +868,7 @@ export function* orderStages(battle, invariantSource, goalSource, mode = 'single
     if (analysis.preservation.pass) {
       // Trace visualization is supplemental and only runs after preservation
       // succeeds. It never executes a future goal or supplies proof evidence.
-      analysis.traces = traceInputs.map(initial => ({ initial: stateCopy(initial), ...traceProgram(level, guard, initial) }));
+      analysis.traces = traceInputs.map(initial => ({ initial: stateCopy(initial), ...traceProgram(level, guard, initial, space) }));
       analysis.trace = analysis.traces[0].trace;
       analysis.traceStatus = analysis.traces[0].traceStatus;
       analysis.valid = true;
@@ -815,7 +892,7 @@ export function* orderStages(battle, invariantSource, goalSource, mode = 'single
       const displayed = !initialized || displayedInputs.has(`${before.a},${before.b}`);
       if (displayed && onBoard(before, level.size)) projected.set(key(before), point(before));
     });
-    analysis.candidates = [...projected.values()].sort((a, b) => a.x - b.x || a.y - b.y);
+    analysis.candidates = [...projected.values()].sort(comparePoints);
     if (initialized) {
       activeCheck = 'specification';
       const specification = predicate(level.goalSolution, 'goal');

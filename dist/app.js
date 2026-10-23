@@ -1,4 +1,4 @@
-import { parseExpression, evaluate, initialStatesForLevel, traceInputsForLevel, isInitializedLevel, projectPredicate, previewCandidatesForLevel, createBattle, orderStages, formatEngineError } from './engine.js';
+import { parseExpression, evaluate, initialStatesForLevel, traceInputsForLevel, isInitializedLevel, variablesForLevel, domainsForLevel, stateKey, statePoint, projectPredicate, previewCandidatesForLevel, createBattle, orderStages, formatEngineError } from './engine.js';
 import { LEVELS, CHAPTERS } from './levels.js';
 import { LANGUAGE_STORAGE_KEY, resolveLanguage, translate } from './i18n.js';
 import { applyStaticTranslations, renderHintContent, UI_COPY } from './ui-copy.js';
@@ -9,12 +9,13 @@ import { runFiringSequence, stagePassed, exitAllowsFire } from './firing-sequenc
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const key = p => `${p.x},${p.y}`;
+const key = stateKey;
 const pad = n => String(n).padStart(2, '0');
-const point = p => p ? `(${p.x}, ${p.y})` : '—';
+const point = p => p ? `(${Object.values(statePoint(p)).join(', ')})` : '—';
 let levelIndex = 0, selectedInitialIndex = 0, battle, lastAnalysis = null, records = [], selectedTargets = new Set();
 let browsingChapter = CHAPTERS[0].id;
 let traceInputs = [], allowedInputCount = 0;
+let selectedLayer = 0;
 let preview = true, traceVisible = false, busy = false, sound = true;
 let witness = null, impacts = [], hintCount = 1, turnToken = 0, toastTimer;
 let firingPhase = 'idle', currentStage = null, sequenceStarted = false, sequenceAbort = null;
@@ -73,6 +74,51 @@ const precisionSummary = unit => {
 };
 
 function level() { return LEVELS[levelIndex]; }
+function is3d() { return variablesForLevel(level()).includes('z'); }
+function layerValues() {
+  if(!is3d())return [];
+  const {min,max}=domainsForLevel(level()).z;
+  return Array.from({length:max-min+1},(_,i)=>min+i);
+}
+function inSelectedLayer(state) { return !is3d()||state.z===selectedLayer; }
+function shotsInSelectedLayer(shots=[]) { return shots.filter(inSelectedLayer); }
+function setLayer(value,{force=false}={}) {
+  if((busy&&!force)||!layerValues().includes(value)||value===selectedLayer)return;
+  selectedLayer=value;
+  battleEffects.clear();
+  renderMap();
+}
+function ensureShotLayer(shots=[]) {
+  if(is3d()&&shots.length&&!shots.some(inSelectedLayer))setLayer(shots[0].z,{force:true});
+}
+function traceSegmentsForLayer(trace) {
+  const segments=[];
+  let segment=[];
+  for(const state of trace) {
+    if(inSelectedLayer(state))segment.push(state);
+    else if(segment.length){segments.push(segment);segment=[];}
+  }
+  if(segment.length)segments.push(segment);
+  return segments;
+}
+function stateWindowSummary() {
+  const variables=variablesForLevel(level()), domains=domainsForLevel(level());
+  const states=variables.reduce((count,axis)=>count*(domains[axis].max-domains[axis].min+1),1);
+  return {count:allowedInputCount,states,total:allowedInputCount*states,
+    ranges:variables.map(axis=>`${axis} ∈ [${domains[axis].min}, ${domains[axis].max}]`).join(', ')};
+}
+function renderLayerControls(candidates) {
+  $('layer-controls').hidden=!is3d();
+  if(!is3d())return;
+  const values=layerValues(), hits=new Set(battle.hit.map(key));
+  const count=(items,z)=>items.filter(p=>p.z===z&&!hits.has(key(p))).length;
+  $('layer-select').innerHTML=values.map(z=>`<option value="${z}">${esc(t('layerOption',{z,enemy:count(battle.enemies,z),friendly:count(battle.allies,z),candidates:count(candidates,z)}))}</option>`).join('');
+  $('layer-select').value=String(selectedLayer);
+  $('layer-select').disabled=busy;
+  $('layer-previous').disabled=busy||selectedLayer===values[0];
+  $('layer-next').disabled=busy||selectedLayer===values.at(-1);
+  $('layer-summary').textContent=t('layerSummary',{z:selectedLayer,visible:candidates.filter(inSelectedLayer).length,total:candidates.length});
+}
 function flash(messageKey) {
   toastKey = messageKey; $('toast').textContent = t(messageKey); $('toast').hidden = false;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; toastKey = null; }, 3200);
@@ -83,7 +129,7 @@ function traceForLevel() {
   const l = level(), guard = parseExpression(l.guardSource), trace = [{...traceInputs[selectedInitialIndex]}];
   for (let n=0; n<256 && evaluate(guard, trace.at(-1)); n++) {
     const current=trace.at(-1), next=l.step(current);
-    trace.push({...current,x:next.x,y:next.y});
+    trace.push({...current,...statePoint(next)});
   }
   return trace;
 }
@@ -93,7 +139,7 @@ function previewCandidates() {
   try { projected=previewCandidatesForLevel($('invariant-input').value,level()); } catch { return []; }
   const result=projected.filter(p=>!taken.has(key(p))).map(p=>({...p,type:enemies.has(key(p))?'enemy':allies.has(key(p))?'friendly':'neutral'}));
   const priority={neutral:0,friendly:1,enemy:2};
-  return result.sort((a,b)=>priority[a.type]-priority[b.type] || a.x-b.x || a.y-b.y);
+  return result.sort((a,b)=>priority[a.type]-priority[b.type] || a.x-b.x || a.y-b.y || (a.z??0)-(b.z??0));
 }
 function renderTabs() {
   const chapter = CHAPTERS.find(item => item.id === browsingChapter);
@@ -137,11 +183,15 @@ function nextRound() {
   else selectRound(levelIndex+1);
 }
 function renderInitialInputs() {
+  const scope=stateWindowSummary();
+  $('domain-button').textContent=t('domainBadge',scope);
+  $('active-state-window').textContent=t('activeStateWindow',scope);
+  $('loop-label').innerHTML=UI_COPY[language][is3d()?'command.loop3d':'command.loop'];
   if(isInitializedLevel(level())) {
     $('initial-condition-panel').hidden=false;
     $('initial-condition-description').textContent=t('externalInputs');
     $('initial-condition-code').textContent='requires true;  (a, b) ∈ ℤ²';
-    $('initial-scope').textContent=t('externalScope',{count:allowedInputCount});
+    $('initial-scope').textContent=t(is3d()?'externalScope3d':'externalScope',scope);
     $('initial-input-label').textContent=t('battlefieldInputs');
     $('initial-input-help').textContent=t('battlefieldInputsHelp');
     $('initial-inputs').innerHTML=traceInputs.map((p,i)=>`<button class="initial-input ${i===selectedInitialIndex?'active':''}" data-initial-index="${i}" aria-pressed="${i===selectedInitialIndex}" aria-label="${esc(t('inputCase',{number:i+1,point:`(${p.a}, ${p.b})`}))}"><span>${pad(i+1)}</span><code>(a,b) = (${p.a}, ${p.b})</code><small>${esc(t('initializedState',{point:point(p),n:p.n,m:p.m}))}</small></button>`).join('');
@@ -150,7 +200,7 @@ function renderInitialInputs() {
   const condition=level().initialCondition, predicate=condition!==undefined;
   $('initial-condition-panel').hidden=!predicate;
   $('initial-condition-description').textContent=predicate?t(condition.trim()==='true'?'unrestrictedInputs':'predicateInputs'):'';
-  $('initial-condition-code').textContent=predicate?`P(x, y) = ${condition}`:'';
+  $('initial-condition-code').textContent=predicate?`P(${variablesForLevel(level()).join(', ')}) = ${condition}`:'';
   $('initial-scope').textContent=predicate?t('initialScope',{count:allowedInputCount}):'';
   $('initial-input-label').textContent=t(predicate?'traceSamples':'allowedInputs');
   $('initial-input-help').textContent=t(predicate?'traceSamplesHelp':'allowedInputsHelp');
@@ -158,6 +208,7 @@ function renderInitialInputs() {
 }
 function renderMap() {
   const l=level(), candidates=previewCandidates(), candidateSet=new Set(candidates.map(key));
+  renderLayerControls(candidates);
   let goals=[], terminals=[];
   try { goals=projectPredicate($('goal-input').value,l); } catch {}
   try { terminals=projectPredicate(`!(${l.guardSource})`,l); } catch {}
@@ -169,30 +220,36 @@ function renderMap() {
   for(let y=l.size-1;y>=0;y--) {
     cells.push(`<span class="axis-label">${y}</span>`);
     for(let x=0;x<l.size;x++) {
-      const p={x,y}, k=key(p), hit=hitMap.get(k), type=enemies.has(k)?'enemy':allies.has(k)?'friendly':'neutral';
+      const p=is3d()?{x,y,z:selectedLayer}:{x,y}, k=key(p), hit=hitMap.get(k), type=enemies.has(k)?'enemy':allies.has(k)?'friendly':'neutral';
       const terminal=terminalSet.has(k), objective=goalSet.has(k);
       const classes=['cell',type,terminal?'terminal':'',preview&&candidateSet.has(k)?'candidate':'',preview&&key(candidates[0]||{})===k?'next-target':'',objective?'objective':'',hit?'hit':'',impactSet.has(k)?'impact':'',witness&&key(witness)===k?'witness':''].filter(Boolean).join(' ');
       const unit=hit||enemies.get(k)||allies.get(k), affiliation=hit?.type||type;
       const isUnit=affiliation==='enemy'||affiliation==='friendly';
       const content=hit?`<span class="crater ${esc(hit.type||'neutral')}">×</span>`:isUnit?`${unitSymbol(affiliation,unit.branch)}<span class="unit-points ${affiliation}" aria-hidden="true">${signedUnitPoints(unit,affiliation)}</span>`:'<span class="neutral-dot"></span>';
       const unitLabel=isUnit?t('unitDescription',{affiliation:t(affiliation),branch:branchName(unit),points:signedUnitPoints(unit,affiliation)}):t('neutral');
-      const labelParams={x,y,unit:hit?t('struckUnit',{unit:unitLabel}):unitLabel,objective:objective?t('objectiveSuffix'):''};
-      cells.push(`<button class="${classes}" data-cell="${x},${y}" aria-label="${esc(t('cellLabel',labelParams))}" aria-pressed="${objective?'true':'false'}" title="${esc(t('cellTitle',labelParams))}" ${busy?'disabled':''}>${content}<span class="cell-coordinate">${x},${y}</span>${objective?'<span class="target-reticle"></span>':''}</button>`);
+      const labelParams={...p,unit:hit?t('struckUnit',{unit:unitLabel}):unitLabel,objective:objective?t('objectiveSuffix'):''};
+      cells.push(`<button class="${classes}" data-cell="${k}" aria-label="${esc(t(is3d()?'cellLabel3d':'cellLabel',labelParams))}" aria-pressed="${objective?'true':'false'}" title="${esc(t(is3d()?'cellTitle3d':'cellTitle',labelParams))}" ${busy?'disabled':''}>${content}<span class="cell-coordinate">${x},${y}</span>${objective?'<span class="target-reticle"></span>':''}</button>`);
     }
   }
   const xy = p => `${p.x*100+50},${(l.size-1-p.y)*100+50}`;
   let overlay='';
   $('trace-summary').hidden=!traceVisible;
   if(traceVisible) {
-    const t=traceForLevel(), start=t[0]; overlay += `<defs><clipPath id="trace-bounds"><rect width="${l.size*100}" height="${l.size*100}"/></clipPath></defs><g clip-path="url(#trace-bounds)"><polyline class="trace-path" points="${t.map(xy).join(' ')}"/><circle class="trace-start" cx="${start.x*100+50}" cy="${(l.size-1-start.y)*100+50}" r="11"/>`;
-    const end=t.at(-1); overlay += `<circle class="trace-end" cx="${end.x*100+50}" cy="${(l.size-1-end.y)*100+50}" r="15"/></g>`;
-    $('trace-summary').textContent=translate(language,'traceSummary',{start:point(start),end:point(end),count:t.length-1})+(t.some(p=>p.x<0||p.y<0||p.x>=l.size||p.y>=l.size)?translate(language,'traceOffBoard'):'');
+    const trace=traceForLevel(), start=trace[0], end=trace.at(-1);
+    overlay += `<defs><clipPath id="trace-bounds"><rect width="${l.size*100}" height="${l.size*100}"/></clipPath></defs><g clip-path="url(#trace-bounds)">`;
+    for(const segment of traceSegmentsForLayer(trace)) {
+      overlay+=segment.length>1?`<polyline class="trace-path" points="${segment.map(xy).join(' ')}"/>`:`<circle class="trace-start" cx="${segment[0].x*100+50}" cy="${(l.size-1-segment[0].y)*100+50}" r="5"/>`;
+    }
+    if(inSelectedLayer(start))overlay+=`<circle class="trace-start" cx="${start.x*100+50}" cy="${(l.size-1-start.y)*100+50}" r="11"/>`;
+    if(inSelectedLayer(end))overlay+=`<circle class="trace-end" cx="${end.x*100+50}" cy="${(l.size-1-end.y)*100+50}" r="15"/>`;
+    overlay+='</g>';
+    $('trace-summary').textContent=translate(language,'traceSummary',{start:point(start),end:point(end),count:trace.length-1})+(trace.some(p=>p.x<0||p.y<0||p.x>=l.size||p.y>=l.size)?translate(language,'traceOffBoard'):'');
   }
-  for(const p of impacts) overlay+=`<path class="shell-trail" d="M -30 ${l.size*100+50} Q ${p.x*100-100} ${Math.max(-50,(l.size-1-p.y)*100-180)} ${xy(p).replace(',',' ')}"/>`;
+  for(const p of impacts.filter(inSelectedLayer)) overlay+=`<path class="shell-trail" d="M -30 ${l.size*100+50} Q ${p.x*100-100} ${Math.max(-50,(l.size-1-p.y)*100-180)} ${xy(p).replace(',',' ')}"/>`;
   cells.push(`<svg class="trace-layer" viewBox="0 0 ${l.size*100} ${l.size*100}" aria-hidden="true">${overlay}</svg>`);
   $('grid').style.setProperty('--size',l.size); $('grid').innerHTML=cells.join('');
-  $('map-sector').textContent=`SECTOR ${pad(levelIndex+1)} · ${pad(l.size)} × ${pad(l.size)}`;
-  $('map-status').textContent = battle.finished ? t(battle.cleared?'mapCleared':'mapEnded') : candidates.length?t('mapCandidates',{count:candidates.length,point:point(candidates[0]),status:t(exitAllowsFire(lastAnalysis)?stagePassed(lastAnalysis,'goal')?'verified':'invariantVerified':'pending')}):t('noCandidates');
+  $('map-sector').textContent=`SECTOR ${pad(levelIndex+1)} · ${pad(l.size)} × ${pad(l.size)}${is3d()?` · Z = ${selectedLayer}`:''}`;
+  $('map-status').textContent = battle.finished ? t(battle.cleared?'mapCleared':'mapEnded') : candidates.length?t(is3d()?'mapCandidates3d':'mapCandidates',{count:candidates.length,visible:candidates.filter(inSelectedLayer).length,z:selectedLayer,point:point(candidates[0]),status:t(exitAllowsFire(lastAnalysis)?stagePassed(lastAnalysis,'goal')?'verified':'invariantVerified':'pending')}):t('noCandidates');
   if(busy&&['fire','flight-delay','flight','impact','radio'].includes(firingPhase))$('map-status').textContent=t(`sequence.${sequenceCopyPhase()}.title`);
   $('preview-button').classList.toggle('active',preview); $('preview-button').setAttribute('aria-pressed',String(preview));
   $('trace-button').classList.toggle('active',traceVisible); $('trace-button').setAttribute('aria-pressed',String(traceVisible));
@@ -224,9 +281,9 @@ function renderStats() {
   document.querySelectorAll('[data-initial-index], [data-insert]').forEach(button=>{button.disabled=busy;});
   $('target-enemies').disabled=busy||battle.finished;
   for(const mode of ['single','salvo']) {
-    $(`${mode}-button`).querySelector('[data-i18n-html]').innerHTML=UI_COPY[language][`fire.${mode}`];
+    $(`${mode}-button`).querySelector('[data-i18n-html]').innerHTML=UI_COPY[language][`fire.${mode}${mode==='salvo'&&is3d()?'3d':''}`];
   }
-  $('command-note').textContent=t(battle.finished?'commandEnded':!$('goal-input').value.trim()?'commandNoGoal':'commandKeys');
+  $('command-note').textContent=t(battle.finished?'commandEnded':!$('goal-input').value.trim()?'commandNoGoal':is3d()?'commandKeys3d':'commandKeys');
 }
 function renderChecks() {
   $('verification-strip').innerHTML=['initial','preservation','goal'].map(k=>{
@@ -285,8 +342,10 @@ function renderLogs() {
   $('log-list').innerHTML=records.length?records.map((r,i)=>{
     const report=r.type==='fired'?shotReport(r):{mode:t(r.mode)};
     const title=t(r.type==='dud'?'logDud':'logFired',report);
-    const body=r.type==='dud'?witnessReport(r.analysis):t('logShots',{...report,proof:t(stagePassed(r.analysis,'goal')?'proofSuffix':'unprovenSuffix')});
-    return `<li class="log-entry"><span class="log-marker ${r.kind}"></span><div><strong>${esc(title)}</strong><p>${esc(body)}</p><code>${esc(r.expression)}</code></div><span class="log-time">#${pad(records.length-i)}</span></li>`;
+    let body=r.type==='dud'?witnessReport(r.analysis):t('logShots',{...report,proof:t(stagePassed(r.analysis,'goal')?'proofSuffix':'unprovenSuffix')});
+    if(r.type==='fired'&&is3d())body+=` · ${t('layerShotReport',{layers:new Set(r.shots.map(p=>p.z)).size,count:r.shots.length})}`;
+    const coordinates=r.type==='fired'&&is3d()?`<p>${esc(r.shots.map(point).join(' · '))}</p>`:'';
+    return `<li class="log-entry"><span class="log-marker ${r.kind}"></span><div><strong>${esc(title)}</strong><p>${esc(body)}</p>${coordinates}<code>${esc(r.expression)}</code></div><span class="log-time">#${pad(records.length-i)}</span></li>`;
   }).join(''):`<li class="empty-log">${esc(t('emptyLog'))}</li>`;
 }
 function render() {renderTabs();renderInitialInputs();renderStats();renderMap();renderChecks();renderLogs();renderFeedback();}
@@ -303,6 +362,7 @@ function loadLevel(index) {
   levelIndex=index; selectedInitialIndex=0; battle=createBattle(level()); lastAnalysis=null;records=[];selectedTargets=new Set();witness=null;impacts=[];hintCount=1;busy=false;turnToken++;
   browsingChapter=level().chapter;
   traceInputs=traceInputsForLevel(level()); allowedInputCount=initialStatesForLevel(level()).length;
+  selectedLayer=is3d()?(level().enemies[0]?.z??layerValues()[0]):0;
   $('invariant-input').value=level().starter; $('goal-input').value=isInitializedLevel(level())?level().goalSolution:'';
   $('goal-input').readOnly=isInitializedLevel(level());
   $('target-enemies').hidden=isInitializedLevel(level());
@@ -314,7 +374,7 @@ function loadLevel(index) {
 }
 function setSelectedGoal() {
   if(isInitializedLevel(level()))return;
-  $('goal-input').value=[...selectedTargets].map(k=>{const [x,y]=k.split(',');return `(x == ${x} && y == ${y})`;}).join(' || ');
+  $('goal-input').value=[...selectedTargets].map(k=>{const coordinates=k.split(',');return `(${variablesForLevel(level()).map((axis,i)=>`${axis} == ${coordinates[i]}`).join(' && ')})`;}).join(' || ');
   invalidateAnalysis();
 }
 function selectTacticalView(view,{focusTab=false}={}) {
@@ -352,6 +412,7 @@ function applyOrderResult(result,mode,expression) {
   if(result.dud) {
     const failed=lastAnalysis.initial.pass===false?lastAnalysis.initial:lastAnalysis.preservation.pass===false?lastAnalysis.preservation:lastAnalysis.specification?.pass===false?lastAnalysis.specification:lastAnalysis.goal;
     witness=failed?.before||null;
+    if(is3d()&&witness)setLayer(witness.z,{force:true});
     feedbackState={type:'dud',mode,analysis:lastAnalysis};
     records.unshift({...feedbackState,kind:'dud',expression});
   } else if(result.shots?.length) {
@@ -394,6 +455,7 @@ async function fire(mode) {
       } else if(event.type==='checked') {
         lastAnalysis=event.analysis;revealedStages.add(event.stage);currentStage=null;renderChecks();
       } else if(event.type==='phase') {
+        if(event.phase==='fire'||event.phase==='flight-delay')ensureShotLayer(event.shots);
         currentStage=null;setFiringPhase(event.phase);
         const cues={'breech-open':'breechOpen',loading:'shellLoad','breech-close':'breechClose',fire:'fire',radio:'radio',failed:'failure'};
         if(cues[event.phase])playCue(cues[event.phase]);
@@ -401,10 +463,10 @@ async function fire(mode) {
         // from the mobile command panel would hide the short shell animation.
         if(event.phase==='flight-delay')document.querySelector('.battlefield').scrollIntoView({behavior:'instant',block:'center'});
         if(event.phase==='flight') {
-          battleEffects.launch(event.shots,{mode,size:level().size});
+          battleEffects.launch(shotsInSelectedLayer(event.shots),{mode,size:level().size});
         }
         if(event.phase==='impact') {
-          battleEffects.impact(event.shots,{mode,size:level().size});
+          battleEffects.impact(shotsInSelectedLayer(event.shots),{mode,size:level().size});
           playCue(mode==='salvo'?'salvoImpact':'impact',{count:event.shots.length});
         }
         if(event.phase==='radio')battleEffects.radio();
@@ -484,14 +546,17 @@ $('chapter-select').addEventListener('change',e=>{
   const chapter=Number(e.target.value);
   if(CHAPTERS.some(item=>item.id===chapter)){browsingChapter=chapter;renderTabs();}
 });
+$('layer-select').addEventListener('change',e=>setLayer(Number(e.target.value)));
+$('layer-previous').addEventListener('click',()=>setLayer(selectedLayer-1));
+$('layer-next').addEventListener('click',()=>setLayer(selectedLayer+1));
 $('mission-tabs').addEventListener('click',e=>{const b=e.target.closest('[data-level]');if(b)selectRound(Number(b.dataset.level));});
 $('campaign-chapters').addEventListener('click',e=>{const b=e.target.closest('[data-level]');if(b)selectRound(Number(b.dataset.level));});
 $('overview-button').addEventListener('click',showOverview);
 $('previous-round').addEventListener('click',()=>selectRound(levelIndex-1));
 $('next-round').addEventListener('click',nextRound);
-$('initial-inputs').addEventListener('click',e=>{const b=e.target.closest('[data-initial-index]');if(!b||busy)return;selectedInitialIndex=Number(b.dataset.initialIndex);traceVisible=true;renderInitialInputs();renderMap();});
+$('initial-inputs').addEventListener('click',e=>{const b=e.target.closest('[data-initial-index]');if(!b||busy)return;selectedInitialIndex=Number(b.dataset.initialIndex);traceVisible=true;if(is3d())setLayer(traceInputs[selectedInitialIndex].z);renderInitialInputs();renderMap();});
 $('grid').addEventListener('click',e=>{const b=e.target.closest('[data-cell]');if(!b||busy||battle.finished||isInitializedLevel(level()))return;const k=b.dataset.cell;selectedTargets.has(k)?selectedTargets.delete(k):selectedTargets.add(k);setSelectedGoal();});
-$('grid').addEventListener('pointerover',e=>{const b=e.target.closest('[data-cell]');if(b)$('hover-coordinate').textContent=`COORDINATE (${b.dataset.cell.replace(',',', ')})`;});
+$('grid').addEventListener('pointerover',e=>{const b=e.target.closest('[data-cell]');if(b)$('hover-coordinate').textContent=`COORDINATE (${b.dataset.cell.split(',').join(', ')})`;});
 $('grid').addEventListener('pointerleave',()=>{$('hover-coordinate').textContent=t('coordinatePrompt');});
 $('target-enemies').addEventListener('click',()=>{selectedTargets=new Set(level().enemies.map(key));setSelectedGoal();});
 $('goal-input').addEventListener('input',()=>{selectedTargets.clear();invalidateAnalysis();});

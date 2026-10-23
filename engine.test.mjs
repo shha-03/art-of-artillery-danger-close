@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import {
   DOMAIN, parseExpression, evaluate, analyze, createBattle, order, formatEngineError,
   initialStatesForLevel, traceInputsForLevel, isInitializedLevel, INPUT_DOMAIN,
+  variablesForLevel, domainsForLevel, stateKey, statePoint,
 } from './dist/engine.js';
 import { unitPoints } from './dist/unit-types.js';
 
@@ -222,10 +223,13 @@ test('command budget defaults and invalid level data are handled', () => {
 });
 
 const { LEVELS } = await import('./dist/levels.js');
+const ORIGINAL_LEVELS = LEVELS.filter(mission => /^g\d{2}$/.test(mission.id));
+const SPATIAL_LEVELS = LEVELS.filter(mission => variablesForLevel(mission).includes('z'));
 
-test('authored starters expose their intended failure and each solution proves the displayed enemy coordinates', () => {
-  assert.equal(LEVELS.length, 20);
-  for (const mission of LEVELS) {
+test('the original 20 two-variable solutions retain exact enemy candidates and the default verification window', () => {
+  assert.deepEqual(ORIGINAL_LEVELS.map(mission => mission.id), Array.from({ length: 20 }, (_, index) => `g${String(index + 1).padStart(2, '0')}`));
+  for (const mission of ORIGINAL_LEVELS) {
+    assert.deepEqual(variablesForLevel(mission), ['x', 'y'], mission.id);
     const starter = analyze(mission.starter, mission.goalSolution, mission);
     assert.equal(starter.error, undefined, mission.id);
     assert.equal(starter.valid && starter.goal.pass, false, mission.id);
@@ -262,8 +266,8 @@ test('authored starters expose their intended failure and each solution proves t
   }
 });
 
-test('singles and a salvo earn the same target points with one command charged per order', () => {
-  for (const mission of LEVELS) {
+test('the original 20 solutions clear with singles or a salvo and retain their exact command savings', () => {
+  for (const mission of ORIGINAL_LEVELS) {
     let battle = createBattle(mission);
     for (let shot = 0; shot < mission.enemies.length; shot++) {
       const result = order(battle, mission.solution, mission.goalSolution, 'single');
@@ -281,6 +285,59 @@ test('singles and a salvo earn the same target points with one command charged p
     assert.equal(battle.score, (targetPoints + mission.commands - mission.enemies.length) * 2, mission.id);
     const salvo = order(createBattle(mission), mission.solution, mission.goalSolution, 'salvo');
     assert.equal(salvo.battle.score - battle.score, (mission.enemies.length - 1) * 2, mission.id);
+  }
+});
+
+test('the four spatial solutions check all axis windows and fire every layer while allowing neutral exit candidates', () => {
+  assert.equal(LEVELS.length, ORIGINAL_LEVELS.length + SPATIAL_LEVELS.length);
+  assert.deepEqual(SPATIAL_LEVELS.map(mission => mission.id), ['s01', 's02', 's03', 's04']);
+  for (const mission of SPATIAL_LEVELS) {
+    const domains = domainsForLevel(mission);
+    const stateCount = variablesForLevel(mission).reduce((count, axis) => count * (domains[axis].max - domains[axis].min + 1), 1);
+    const starter = analyze(mission.starter, mission.goalSolution, mission);
+    assert.equal(starter.error, undefined, mission.id);
+    assert.equal(starter.valid, true, mission.id);
+    assert.equal(starter.goal.pass, false, mission.id);
+    const solution = analyze(mission.solution, mission.goalSolution, mission);
+    assert.equal(solution.error, undefined, mission.id);
+    assert.equal(solution.objectiveVerified, true, mission.id);
+    assert.equal(solution.specification.pass, true, mission.id);
+    assert.equal(solution.initial.checkedCount, INPUT_DOMAIN.stateCount, mission.id);
+    assert.equal(solution.checkedStateCount, INPUT_DOMAIN.stateCount * stateCount, mission.id);
+    assert.equal(solution.stateWindow.stateCount, stateCount, mission.id);
+    assert.equal(solution.traces.length, 3, mission.id);
+    assert.ok(solution.traces.every(run => run.traceStatus === 'terminated'), mission.id);
+    const enemies = new Set(mission.enemies.map(stateKey));
+    const allies = new Set(mission.allies.map(stateKey));
+    const candidates = new Set(solution.candidates.map(stateKey));
+    const endpoints = new Set(solution.traces.map(run => stateKey(run.trace.at(-1))));
+    assert.deepEqual(endpoints, enemies, mission.id);
+    assert.equal(candidates.size, solution.candidates.length, mission.id);
+    assert.ok([...enemies].every(key => candidates.has(key)), mission.id);
+    assert.ok([...candidates].every(key => !allies.has(key)), mission.id);
+    assert.ok(solution.candidates.every(point => Number.isInteger(point.z)), mission.id);
+
+    const battle = createBattle(mission);
+    const single = order(battle, mission.solution, mission.goalSolution, 'single');
+    assert.equal(single.cost, 1, mission.id);
+    assert.equal(single.shots.length, 1, mission.id);
+    assert.equal(single.battle.remaining, mission.commands - 1, mission.id);
+    assert.equal(single.battle.friendlyKills, 0, mission.id);
+    assert.ok(candidates.has(stateKey(single.shots[0])), mission.id);
+    assert.equal(single.shots[0].type, candidates.size > enemies.size ? 'neutral' : 'enemy', mission.id);
+
+    const salvo = order(battle, mission.solution, mission.goalSolution, 'salvo');
+    assert.equal(salvo.cost, 1, mission.id);
+    assert.deepEqual(new Set(salvo.shots.map(stateKey)), candidates, mission.id);
+    assert.deepEqual(new Set(salvo.shots.filter(shot => shot.type === 'enemy').map(stateKey)), enemies, mission.id);
+    assert.equal(salvo.battle.cleared, true, mission.id);
+    assert.equal(salvo.battle.friendlyKills, 0, mission.id);
+    assert.equal(salvo.battle.remaining, mission.commands - 1, mission.id);
+    const targetPoints = mission.enemies.reduce((sum, unit) => sum + unitPoints(unit), 0);
+    assert.equal(salvo.battle.baseScore, targetPoints + mission.commands - 1, mission.id);
+    assert.equal(salvo.battle.scoreMultiplier, 2, mission.id);
+    assert.equal(salvo.battle.score, (targetPoints + mission.commands - 1) * 2, mission.id);
+    assert.ok(salvo.shots.map(statePoint).every(point => Object.hasOwn(point, 'z')), mission.id);
   }
 });
 

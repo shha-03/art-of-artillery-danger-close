@@ -40,7 +40,7 @@ export function unitSymbol(affiliation, branch, className = 'unit-icon') {
  */
 export function withUnitBranches(level, risks) {
   const branches = ['infantry', 'armor', 'artillery'];
-  const key = ({ x, y }) => `${x},${y}`;
+  const key = state => `${state.x},${state.y}${Object.hasOwn(state, 'z') ? `,${state.z}` : ''}`;
   if (!Array.isArray(level.enemies) || !Array.isArray(level.allies)
     || level.enemies.length < 1 || level.enemies.length > branches.length || level.allies.length !== branches.length) {
     throw new TypeError('Campaign missions require one to three unique enemies and three allies.');
@@ -75,10 +75,10 @@ export function withUnitBranches(level, risks) {
     : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([name, item]) => [name, copyEvidence(item)]))
       : value;
   const enemies = level.enemies.map(unit => {
-    const { x, y, ...risk } = riskByLocation.get(key(unit));
+    const { x, y, z, ...risk } = riskByLocation.get(key(unit));
     return { ...unit, branch: branches[Math.min(risk.friendlyCount, 2)], targetingRisk: copyEvidence(risk) };
   });
-  const sortedAllies = [...level.allies].sort((a, b) => a.x - b.x || a.y - b.y);
+  const sortedAllies = [...level.allies].sort((a, b) => a.x - b.x || a.y - b.y || (a.z ?? 0) - (b.z ?? 0));
   const allyBranches = new Map(sortedAllies.map((unit, index) => [key(unit), branches[index]]));
   const allies = level.allies.map(unit => ({ ...unit, branch: allyBranches.get(key(unit)) }));
   return { ...level, enemies, allies };

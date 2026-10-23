@@ -1,18 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { LEVELS, CHAPTERS } from './dist/levels.js';
 import {
   INPUT_DOMAIN, battlefieldCasesForLevel, createBattle, isInitializedLevel,
-  order, previewCandidatesForLevel, projectPredicate, verificationCasesForLevel,
+  order, previewCandidatesForLevel, projectPredicate, verificationCasesForLevel, stateKey,
 } from './dist/engine.js';
 import { UNIT_TYPES, unitPoints } from './dist/unit-types.js';
 
-const keys=states=>states.map(({x,y})=>x+','+y).sort();
+const keys=states=>states.map(stateKey).sort();
 
-test('twenty general programs replace the example-specific campaign and form five localized chapters',()=>{
-  assert.equal(LEVELS.length,20);
-  assert.deepEqual(LEVELS.map(level=>level.id),Array.from({length:20},(_,i)=>'g'+String(i+1).padStart(2,'0')));
-  assert.deepEqual(CHAPTERS.map(chapter=>chapter.id),[1,2,3,4,5]);
+test('twenty existing programs and four spatial programs form six localized chapters',()=>{
+  assert.equal(LEVELS.length,24);
+  assert.deepEqual(LEVELS.map(level=>level.id),[
+    ...Array.from({length:20},(_,i)=>'g'+String(i+1).padStart(2,'0')), 's01','s02','s03','s04',
+  ]);
+  assert.deepEqual(CHAPTERS.map(chapter=>chapter.id),[1,2,3,4,5,6]);
   for(const chapter of CHAPTERS){
     assert.equal(LEVELS.filter(level=>level.chapter===chapter.id).length,4);
     for(const copy of [chapter,chapter.en])for(const field of ['name','description'])assert.ok(copy[field]?.trim());
@@ -43,8 +46,11 @@ test('verification always covers the full raw-input window while the battlefield
     assert.equal(inputs[0].a,INPUT_DOMAIN.min);
     assert.equal(inputs.at(-1).b,INPUT_DOMAIN.max);
     assert.equal(new Set(inputs.map(({a,b})=>a+','+b)).size,81);
-    assert.deepEqual(keys(previewCandidatesForLevel(level.solution,level)),keys(level.enemies));
-    assert.deepEqual(keys(projectPredicate(level.goalSolution,level)),keys(level.enemies));
+    const candidates=keys(previewCandidatesForLevel(level.solution,level));
+    assert.deepEqual(candidates,keys(projectPredicate(level.goalSolution,level)));
+    assert.ok(keys(level.enemies).every(location=>candidates.includes(location)));
+    assert.ok(keys(level.allies).every(location=>!candidates.includes(location)));
+    if(level.id!=='s04')assert.deepEqual(candidates,keys(level.enemies));
     assert.ok(level.allies.every(ally=>!keys(level.enemies).includes(keys([ally])[0])));
     // Inputs outside the checking window are initialized without wrapping,
     // clamping, or a fixed list. This is a regression, not an unbounded proof.
@@ -52,6 +58,17 @@ test('verification always covers the full raw-input window while the battlefield
     assert.equal(wide.n,17);
     assert.equal(wide.m,11);
   }
+});
+
+test('the spatial chapter preserves every existing algorithm, solution, deployment, risk, and branch value',()=>{
+  const original=LEVELS.slice(0,20).map(({id,chapter,initializationCode,code,guardSource,solution,goalSolution,starter,referenceInvariant,battleInputs,enemies,allies})=>
+    ({id,chapter,initializationCode,code,guardSource,solution,goalSolution,starter,referenceInvariant,battleInputs,enemies,allies}));
+  // Captured before adding the spatial chapter, including full risk evidence.
+  assert.equal(createHash('sha256').update(JSON.stringify(original)).digest('hex'),
+    'b93fad86259ee0503200972b140d5e2414e6509cfb9188f9a1656142f0278823');
+  const pairing=LEVELS.find(level=>level.id==='s02');
+  assert.equal(pairing.enemies.filter(unit=>unit.x===0&&unit.y===0).length,2);
+  assert.deepEqual(pairing.enemies.filter(unit=>unit.x===0&&unit.y===0).map(unit=>unit.z),[1,2]);
 });
 
 test('branch metadata measures contextual friendly leakage and allows ties and merged endpoints',()=>{

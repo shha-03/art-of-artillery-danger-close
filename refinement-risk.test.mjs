@@ -4,7 +4,7 @@ import { Script, createContext } from 'node:vm';
 import { LEVELS as CAMPAIGN_LEVELS } from './dist/levels.js';
 import { BASIC_LEVELS } from './dist/levels-basic.js';
 import { ADVANCED_LEVELS } from './dist/levels-advanced.js';
-import { DOMAIN, analyze, battlefieldCasesForLevel, createBattle, evaluate, initialStatesForLevel, isInitializedLevel, order, parseExpression } from './dist/engine.js';
+import { DOMAIN, analyze, battlefieldCasesForLevel, createBattle, evaluate, initialStatesForLevel, isInitializedLevel, order, parseExpression, variablesForLevel, domainsForLevel } from './dist/engine.js';
 import { computeRefinementRisks } from './dist/refinement-risk.js';
 import { unitPoints, withUnitBranches } from './dist/unit-types.js';
 
@@ -47,7 +47,7 @@ const LEVELS = [...LEGACY_FIXTURES, ...BASIC_LEVELS, ...ADVANCED_LEVELS].map(sou
   return withUnitBranches(level, computeRefinementRisks(level));
 });
 
-const key = ({ x, y }) => `${x},${y}`;
+const key = state => `${state.x},${state.y}${Object.hasOwn(state,'z')?`,${state.z}`:''}`;
 const keys = states => states.map(key).sort();
 const point = ({ x, y }) => ({ x, y });
 const levelById = id => LEVELS.find(level => level.id === id);
@@ -283,18 +283,40 @@ const initializedFixture = () => ({
 function assertContextRegion(level, context) {
   const predicate = parseExpression(context.coarseInvariant);
   const guard = parseExpression(level.guardSource);
+  const axes=variablesForLevel(level),domains=domainsForLevel(level);
+  const states=axes.reduce((partial,axis)=>partial.flatMap(state=>
+    Array.from({length:domains[axis].max-domains[axis].min+1},(_,offset)=>({...state,[axis]:domains[axis].min+offset}))),[{}]);
   assert.equal(evaluate(predicate, { ...context.initial, ...context.parameters }), true);
-  for (let x=DOMAIN.min;x<=DOMAIN.max;x++) for (let y=DOMAIN.min;y<=DOMAIN.max;y++) {
-    const before={x,y,...context.parameters};
+  for (const position of states) {
+    const before={...position,...context.parameters};
     if (!evaluate(predicate,before) || !evaluate(guard,before)) continue;
     const after={...level.step({...before}),...context.parameters};
-    assert.ok(after.x>=DOMAIN.min&&after.x<=DOMAIN.max&&after.y>=DOMAIN.min&&after.y<=DOMAIN.max);
+    assert.ok(axes.every(axis=>after[axis]>=domains[axis].min&&after[axis]<=domains[axis].max));
     assert.equal(evaluate(predicate,after),true,'every state in the contextual box must preserve it');
   }
   const exposed=level.allies.filter(ally=>evaluate(predicate,{...ally,...context.parameters})
     &&!evaluate(guard,{...ally,...context.parameters}));
   assert.deepEqual(keys(context.friendlies),keys(exposed));
 }
+
+test('spatial refinement includes z in boxes, witness identity, and branch attachment',()=>{
+  const pairing=CAMPAIGN_LEVELS.find(level=>level.id==='s02');
+  const risks=computeRefinementRisks(pairing);
+  assert.equal(risks.filter(risk=>risk.x===0&&risk.y===0).length,2);
+  assert.deepEqual(risks.filter(risk=>risk.x===0&&risk.y===0).map(risk=>risk.z),[1,2]);
+  for(const risk of risks){
+    assert.ok(Number.isInteger(risk.bounds.minZ)&&Number.isInteger(risk.bounds.maxZ));
+    assert.ok(risk.contexts.every(context=>/z >=/.test(context.coarseInvariant)&&/z <=/.test(context.coarseInvariant)));
+    assert.ok(risk.friendlies.every(friend=>Object.hasOwn(friend,'z')));
+    assert.ok(risk.friendlies.some(friend=>friend.x===0&&friend.y===0&&friend.z===0),
+      'same x/y on another layer remains a distinct friendly witness');
+  }
+  const assigned=withUnitBranches({...pairing,enemies:[...pairing.enemies].reverse(),allies:[...pairing.allies].reverse()},[...risks].reverse());
+  assert.deepEqual(Object.fromEntries(assigned.enemies.map(unit=>[key(unit),unitPoints(unit)])),
+    Object.fromEntries(pairing.enemies.map(unit=>[key(unit),unitPoints(unit)])));
+  assert.ok(assigned.enemies.every(unit=>!Object.hasOwn(unit.targetingRisk,'z')),
+    'coordinates belong to the unit rather than its attached evidence');
+});
 
 test('initialized risk keeps input contexts separate and unions witnesses at a shared endpoint', () => {
   const level=initializedFixture();

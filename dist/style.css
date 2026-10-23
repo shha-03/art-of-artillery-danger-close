@@ -794,9 +794,19 @@ summary:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; 
 .tactical-panel > .program-panel { padding: 0 12px 12px; border: 1px solid var(--line); border-top: 0; background: #192018; }
 .tactical-panel .program-panel .code-panel pre { font-size: 13px; line-height: 1.6; }
 .tactical-panel .program-panel .code-line { min-height: 1.6em; }
+.layer-controls { padding: 7px 10px 5px; border-bottom: 1px solid var(--line); background: #1d271c; }
+.layer-toolbar { display: grid; grid-template-columns: auto 28px minmax(0, 1fr) 28px; align-items: center; gap: 6px; }
+.layer-toolbar > label { font-size: 10px; font-weight: 600; color: var(--sage); }
+.layer-toolbar > button { min-height: 28px; height: 28px; padding: 0; border: 1px solid var(--line); background: #252e21; font: 16px var(--mono); color: var(--cream); }
+.layer-toolbar > select { width: 100%; min-width: 0; height: 28px; padding: 4px 5px; border: 1px solid var(--line); border-radius: 0; background: #141c14; color: var(--cream); font: 11px var(--sans); }
+.layer-toolbar > select:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.layer-summary { margin: 5px 0 0; color: var(--muted); font: 10px/1.4 var(--sans); }
+.tactical-panel:has(#layer-controls:not([hidden])) .coordinate-grid { width: min(100%, max(280px, min(580px, calc(100dvh - 340px)))); }
+#active-state-window { padding: 10px; border: 1px solid var(--line); color: var(--cream); overflow-wrap: anywhere; }
 @media (max-width: 760px) {
   .tactical-panel .coordinate-grid { width: min(100%, 360px); }
   .view-tabs > [role="tab"] { min-height: 44px; }
+  .tactical-panel:has(#layer-controls:not([hidden])) .coordinate-grid { width: min(100%, 360px); }
 }
 @media (min-width: 600px) and (max-width: 900px) {
   .workspace { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }

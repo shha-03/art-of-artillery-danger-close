@@ -151,3 +151,21 @@ test('reduced motion uses static markers and reacts to a preference change durin
   assert.equal(env.battlefield.querySelector('.fx-battle-layer').getAttribute('aria-hidden'), 'true');
   effects.dispose();
 });
+
+test('a three-dimensional shot resolves only its exact displayed z cell', () => {
+  const env = environment();
+  for (const [key,cell] of env.cells) cell.setAttribute('data-cell', `${key},2`);
+  const effects = createBattleEffects(env);
+  const shots = [{x:2,y:4,z:1},{x:2,y:4,z:2},{x:2,y:4,z:3}];
+  effects.launch(shots, {mode:'salvo'});
+  assert.equal(env.battlefield.querySelectorAll('.fx-projectile').length, 1);
+  effects.impact(shots, {mode:'salvo'});
+  assert.equal(env.battlefield.querySelectorAll('.fx-impact-anchor').length, 1);
+  for (const [key,cell] of env.cells) cell.setAttribute('data-cell', `${key},3`);
+  env.resize();
+  assert.equal(env.battlefield.querySelector('.fx-impact-anchor').style.visibility, 'hidden', 'an old z impact must never attach to the same xy on another layer');
+  effects.clear();
+  effects.impact([{x:2,y:4,z:3}]);
+  assert.equal(env.battlefield.querySelectorAll('.fx-impact-anchor').length, 1);
+  effects.dispose();
+});

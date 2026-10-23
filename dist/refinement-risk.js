@@ -1,21 +1,32 @@
 import {
   DOMAIN, analyze, battlefieldCasesForLevel, evaluate, initialStatesForLevel,
-  isInitializedLevel, parseExpression,
+  isInitializedLevel, parseExpression, variablesForLevel, domainsForLevel, stateKey, statePoint,
 } from './engine.js';
 
-const point = ({ x, y }) => ({ x, y });
-const key = ({ x, y }) => `${x},${y}`;
+const point = statePoint;
+const key = stateKey;
 const inDomain = state => state && Number.isInteger(state.x) && Number.isInteger(state.y)
   && state.x >= DOMAIN.min && state.x <= DOMAIN.max
   && state.y >= DOMAIN.min && state.y <= DOMAIN.max;
-const contains = (bounds, state) => state.x >= bounds.minX && state.x <= bounds.maxX
-  && state.y >= bounds.minY && state.y <= bounds.maxY;
-const sameBounds = (a, b) => a.minX === b.minX && a.maxX === b.maxX
-  && a.minY === b.minY && a.maxY === b.maxY;
-const extend = (bounds, state) => ({
-  minX: Math.min(bounds.minX, state.x), maxX: Math.max(bounds.maxX, state.x),
-  minY: Math.min(bounds.minY, state.y), maxY: Math.max(bounds.maxY, state.y),
-});
+const axesForBounds = bounds => Object.hasOwn(bounds, 'minZ') ? ['x', 'y', 'z'] : ['x', 'y'];
+const contains = (bounds, state) => axesForBounds(bounds).every(axis =>
+  state[axis] >= bounds[`min${axis.toUpperCase()}`] && state[axis] <= bounds[`max${axis.toUpperCase()}`]);
+const sameBounds = (a, b) => Object.keys(a).every(name => a[name] === b[name]);
+const extend = (bounds, state) => Object.fromEntries(axesForBounds(bounds).flatMap(axis => {
+  const upper = axis.toUpperCase();
+  return [[`min${upper}`, Math.min(bounds[`min${upper}`], state[axis])],
+    [`max${upper}`, Math.max(bounds[`max${upper}`], state[axis])]];
+}));
+const boundsAt = (state, axes) => Object.fromEntries(axes.flatMap(axis =>
+  [[`min${axis.toUpperCase()}`, state[axis]], [`max${axis.toUpperCase()}`, state[axis]]]));
+function* positions(axes, domains, index = 0, state = {}) {
+  if (index === axes.length) { yield { ...state }; return; }
+  const axis = axes[index], domain = domains[axis];
+  for (let value = domain.min; value <= domain.max; value++) {
+    state[axis] = value;
+    yield* positions(axes, domains, index + 1, state);
+  }
+}
 
 /**
  * Measure a declared abstraction's friendly leakage, not intrinsic proof
@@ -143,6 +154,10 @@ export function computeRefinementRisks(level) {
  */
 function initializedRefinementRisks(level) {
   const fail = message => { throw new TypeError(`Refinement risk ${level?.id ?? 'level'}: ${message}`); };
+  const axes = variablesForLevel(level), domains = domainsForLevel(level);
+  const inWindow = state => state && axes.every(axis => Number.isInteger(state[axis])
+    && state[axis] >= domains[axis].min && state[axis] <= domains[axis].max);
+  const expansionLimit = axes.reduce((sum, axis) => sum + 2 * (domains[axis].max - domains[axis].min), 0);
   const baselineSource = level.referenceInvariant ?? level.starter;
   if (typeof baselineSource !== 'string' || !baselineSource.trim()) fail('missing reference invariant.');
   const baseline = parseExpression(baselineSource);
@@ -153,7 +168,7 @@ function initializedRefinementRisks(level) {
   }
   const occupied = new Set();
   for (const unit of [...level.enemies, ...level.allies]) {
-    if (!inDomain(unit) || unit.x < 0 || unit.x >= level.size || unit.y < 0 || unit.y >= level.size) {
+    if (!inWindow(unit) || unit.x < 0 || unit.x >= level.size || unit.y < 0 || unit.y >= level.size) {
       fail('units must occupy board coordinates.');
     }
     if (occupied.has(key(unit))) fail('unit coordinates must be distinct.');
@@ -166,9 +181,10 @@ function initializedRefinementRisks(level) {
     if (!evaluate(baseline, initial)) fail('reference invariant must hold after initialization.');
     const reference = [];
     const stateMap = new Map();
-    for (let x = DOMAIN.min; x <= DOMAIN.max; x++) {
-      for (let y = DOMAIN.min; y <= DOMAIN.max; y++) {
-        const state = { x, y, ...parameters };
+    // Only the three battlefield contexts are enumerated here. Full external
+    // input verification belongs to analyze, not campaign loading.
+    for (const position of positions(axes, domains)) {
+        const state = { ...position, ...parameters };
         if (!evaluate(baseline, state)) continue;
         const active = evaluate(guard, state);
         let after = null;
@@ -176,18 +192,17 @@ function initializedRefinementRisks(level) {
           const executionState = { ...state };
           for (const name of ['a', 'b', 'n', 'm']) Object.defineProperty(executionState, name, { writable: false });
           const output = level.step(executionState);
-          if (!inDomain(output)) fail('reference transition escapes the verification window.');
+          if (!inWindow(output)) fail('reference transition escapes the verification window.');
           after = { ...point(output), ...parameters };
           if (!evaluate(baseline, after)) fail('reference invariant must be preserved in every battlefield context.');
         }
         const entry = { state, active, after };
         reference.push(entry);
         stateMap.set(key(state), entry);
-      }
     }
 
     let state = { ...initial };
-    let bounds = { minX: state.x, maxX: state.x, minY: state.y, maxY: state.y };
+    let bounds = boundsAt(state, axes);
     const visited = new Set();
     while (true) {
       const location = key(state);
@@ -209,14 +224,14 @@ function initializedRefinementRisks(level) {
       }
       if (sameBounds(bounds, expanded)) break;
       bounds = expanded;
-      if (++iterations > 4 * (DOMAIN.max - DOMAIN.min)) fail('interval closure did not stabilize.');
+      if (++iterations > expansionLimit) fail('interval closure did not stabilize.');
     }
     const friendlies = level.allies.filter(ally => {
       const entry = stateMap.get(key(ally));
       return entry && !entry.active && contains(bounds, ally);
     }).map(point);
-    const coarseInvariant = `(${baselineSource}) && x >= ${bounds.minX} && x <= ${bounds.maxX}`
-      + ` && y >= ${bounds.minY} && y <= ${bounds.maxY}`;
+    const coarseInvariant = `(${baselineSource})` + axes.map(axis =>
+      ` && ${axis} >= ${bounds[`min${axis.toUpperCase()}`]} && ${axis} <= ${bounds[`max${axis.toUpperCase()}`]}`).join('');
     group.push({
       input: { a: initial.a, b: initial.b }, parameters, initial: point(initial),
       bounds: { ...bounds }, coarseInvariant, friendlies, iterations,
@@ -227,10 +242,11 @@ function initializedRefinementRisks(level) {
     if (!contexts.length) fail('every enemy must be an actual endpoint of a battlefield input.');
     const leaked = new Set(contexts.flatMap(context => context.friendlies.map(key)));
     const friendlies = level.allies.filter(ally => leaked.has(key(ally))).map(point);
-    const bounds = contexts.reduce((result, context) => ({
-      minX: Math.min(result.minX, context.bounds.minX), maxX: Math.max(result.maxX, context.bounds.maxX),
-      minY: Math.min(result.minY, context.bounds.minY), maxY: Math.max(result.maxY, context.bounds.maxY),
-    }), { ...contexts[0].bounds });
+    const bounds = contexts.reduce((result, context) => Object.fromEntries(axes.flatMap(axis => {
+      const upper = axis.toUpperCase();
+      return [[`min${upper}`, Math.min(result[`min${upper}`], context.bounds[`min${upper}`])],
+        [`max${upper}`, Math.max(result[`max${upper}`], context.bounds[`max${upper}`])]];
+    })), { ...contexts[0].bounds });
     const coarseInvariant = contexts.map(context =>
       `(a == ${context.input.a} && b == ${context.input.b} && (${context.coarseInvariant}))`).join(' || ');
     return {
