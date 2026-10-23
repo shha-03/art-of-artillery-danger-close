@@ -9,7 +9,8 @@ import { UNIT_TYPES, unitPoints } from './unit-types.js';
  * this checker explicitly tests a,b in {-4,...,4}². This is not an unbounded proof.
  * A successor outside that space FAILS preservation; it is never clipped.
  * `valid` means initial + preservation, independently of the goal check.
- * All three checks run independently, even when the initial check fails.
+ * analyze runs all checks independently. Orders check them in sequence and
+ * stop at the first failed or erroneous stage before any damage is applied.
  */
 export const DOMAIN = Object.freeze({ min: -32, max: 32, stateCount: 4225 });
 export const INPUT_DOMAIN = Object.freeze({ min: -4, max: 4, stateCount: 81 });
@@ -652,26 +653,20 @@ export function createBattle(level) {
   });
 }
 
-/**
- * Return a new battle, never mutate the argument. An order costs ONE command,
- * including a failed invariant and a full salvo. Syntax/type/arithmetic errors
- * and an empty unhit candidate set cost nothing. Initial/preservation failure
- * is checked BEFORE empty candidates and therefore always costs one command.
- * Goal failure never prevents firing. Historical hits are only removed from
- * the firing list; they are never removed from the proof region S.
- */
-export function order(battle, invariantSource, goalSource, mode = 'single') {
-  const outcome = (fields) => ({ battle, analysis: null, shots: [], enemyPoints: 0, friendlyPoints: 0, dud: false, cost: 0, ...fields });
-  if (mode !== 'single' && mode !== 'salvo') {
-    return outcome({ ...errorDetails(engineError('invalid-mode', { mode })), reason: 'invalid-mode' });
-  }
-  if (battle.finished) return outcome({ reason: 'finished' });
-  const analysis = analyze(invariantSource, goalSource, battle.level);
+function orderOutcome(battle, fields) {
+  return { battle, analysis: null, shots: [], enemyPoints: 0, friendlyPoints: 0, dud: false, cost: 0, ...fields };
+}
+
+/** Apply an already completed staged report once, without repeating checks. */
+function resolveOrder(battle, analysis, mode) {
+  const outcome = fields => orderOutcome(battle, fields);
   if (analysis.error) return outcome({
     analysis,
     error: analysis.error,
     errorCode: analysis.errorCode,
     errorParams: { ...analysis.errorParams },
+    errorStage: analysis.errorStage,
+    errorCheck: analysis.errorCheck,
     reason: 'syntax-error',
   });
   const next = {
@@ -689,6 +684,13 @@ export function order(battle, invariantSource, goalSource, mode = 'single') {
   if (!analysis.valid) {
     next.remaining--;
     return outcome({ battle: updateBattleStatus(next), analysis, dud: true, cost: 1, reason: 'invalid-invariant' });
+  }
+  if (analysis.goal.pass !== true || (isInitializedLevel(battle.level) && analysis.specification?.pass !== true)) {
+    next.remaining--;
+    return outcome({
+      battle: updateBattleStatus(next), analysis, dud: true, cost: 1,
+      reason: analysis.goal.pass !== true ? 'invalid-goal' : 'invalid-specification',
+    });
   }
   const hit = new Set(battle.hit.map(key));
   const enemies = new Map(battle.enemies.map((unit) => [key(unit), unit]));
@@ -717,4 +719,134 @@ export function order(battle, invariantSource, goalSource, mode = 'single') {
   next.allies = next.allies.filter((unit) => !shotKeys.has(key(unit)));
   next.hit.push(...shots.map((shot) => ({ ...shot })));
   return outcome({ battle: updateBattleStatus(next), analysis, shots, enemyPoints, friendlyPoints, cost: 1, reason: 'fired' });
+}
+
+/**
+ * Each next() performs one proof stage and yields an independent cumulative
+ * snapshot. A failed/error stage is the last yield; the following next()
+ * returns the final outcome. No command or damage is applied to the argument.
+ * Unlike analyze, future predicates and traces are not evaluated after failure.
+ * Initialization, preservation, editable ensures, and the fixed specification
+ * must all pass before firing. A false check costs one command; expression
+ * errors and a final proof on an already emptied initialized board remain free.
+ */
+export function* orderStages(battle, invariantSource, goalSource, mode = 'single') {
+  if (mode !== 'single' && mode !== 'salvo') {
+    return orderOutcome(battle, { ...errorDetails(engineError('invalid-mode', { mode })), reason: 'invalid-mode' });
+  }
+  if (battle.finished) return orderOutcome(battle, { reason: 'finished' });
+  const level = battle.level;
+  const initialized = isInitializedLevel(level);
+  const skipped = () => ({ pass: null, skipped: true });
+  const analysis = {
+    valid: false,
+    initial: skipped(), preservation: skipped(), goal: skipped(),
+    candidates: [], trace: [], traces: [], exitStateCount: 0, checkedStateCount: 0,
+    ...(initialized ? {
+      specification: skipped(), objectiveVerified: false,
+      inputWindow: { ...INPUT_DOMAIN }, stateWindow: { ...DOMAIN },
+    } : {}),
+  };
+  const snapshot = stage => ({ stage, analysis: structuredClone(analysis) });
+  const failWithError = (error, stage, check = stage) => {
+    analysis[check] = { pass: null };
+    analysis.valid = analysis.initial.pass === true && analysis.preservation.pass === true;
+    if (initialized) analysis.objectiveVerified = false;
+    Object.assign(analysis, errorDetails(error), { errorStage: stage, errorCheck: check });
+  };
+  let initialStates, traceInputs, invariant, guard;
+  try {
+    ({ initialStates, traceInputs } = validateLevel(level));
+    if (initialized) analysis.contextCount = initialStates.length;
+    invariant = predicate(invariantSource, 'invariant');
+    analysis.initial = { pass: true, checkedCount: 0 };
+    for (const initial of initialStates) {
+      analysis.initial.checkedCount++;
+      if (!evaluate(invariant, initial)) {
+        analysis.initial = { ...analysis.initial, pass: false, before: stateCopy(initial) };
+        break;
+      }
+    }
+  } catch (error) { failWithError(error, 'initial'); }
+  yield snapshot('initial');
+  if (analysis.initial.pass !== true) return resolveOrder(battle, analysis, mode);
+
+  const contexts = initialized ? initialStates : [{}];
+  const visitStates = visitor => {
+    for (const context of contexts) {
+      const parameters = contextParameters(context);
+      for (let x = DOMAIN.min; x <= DOMAIN.max; x++) {
+        for (let y = DOMAIN.min; y <= DOMAIN.max; y++) {
+          if (visitor({ x, y, ...parameters }) === false) return;
+        }
+      }
+    }
+  };
+  try {
+    guard = predicate(level.guardSource, 'guard');
+    analysis.preservation = { pass: true };
+    visitStates(before => {
+      analysis.checkedStateCount++;
+      if (!evaluate(invariant, before) || !evaluate(guard, before)) return;
+      const after = successor(level, before);
+      const outsideDomain = !inDomain(after);
+      if (outsideDomain || !evaluate(invariant, after)) {
+        analysis.preservation = { pass: false, before, after, outsideDomain };
+        return false;
+      }
+    });
+    if (analysis.preservation.pass) {
+      // Trace visualization is supplemental and only runs after preservation
+      // succeeds. It never executes a future goal or supplies proof evidence.
+      analysis.traces = traceInputs.map(initial => ({ initial: stateCopy(initial), ...traceProgram(level, guard, initial) }));
+      analysis.trace = analysis.traces[0].trace;
+      analysis.traceStatus = analysis.traces[0].traceStatus;
+      analysis.valid = true;
+    }
+  } catch (error) { failWithError(error, 'preservation'); }
+  yield snapshot('preservation');
+  if (analysis.preservation.pass !== true) return resolveOrder(battle, analysis, mode);
+
+  let activeCheck = 'goal';
+  try {
+    const goal = predicate(goalSource, 'goal');
+    const displayedInputs = new Set(traceInputs.map(state => `${state.a},${state.b}`));
+    const projected = new Map();
+    analysis.goal = { pass: true };
+    visitStates(before => {
+      if (!evaluate(invariant, before) || evaluate(guard, before)) return;
+      analysis.exitStateCount++;
+      if (!evaluate(goal, before)) {
+        analysis.goal = { pass: false, before };
+        return false;
+      }
+      const displayed = !initialized || displayedInputs.has(`${before.a},${before.b}`);
+      if (displayed && onBoard(before, level.size)) projected.set(key(before), point(before));
+    });
+    if (analysis.goal.pass) {
+      analysis.candidates = [...projected.values()].sort((a, b) => a.x - b.x || a.y - b.y);
+      if (initialized) {
+        activeCheck = 'specification';
+        const specification = predicate(level.goalSolution, 'goal');
+        analysis.specification = { pass: true };
+        visitStates(before => {
+          if (evaluate(invariant, before) && !evaluate(guard, before) && !evaluate(specification, before)) {
+            analysis.specification = { pass: false, before };
+            return false;
+          }
+        });
+        analysis.objectiveVerified = analysis.specification.pass === true;
+      }
+    }
+  } catch (error) { failWithError(error, 'goal', activeCheck); }
+  yield snapshot('goal');
+  return resolveOrder(battle, analysis, mode);
+}
+
+/** Synchronous compatibility wrapper; consumes the same staged order once. */
+export function order(battle, invariantSource, goalSource, mode = 'single') {
+  const stages = orderStages(battle, invariantSource, goalSource, mode);
+  let result = stages.next();
+  while (!result.done) result = stages.next();
+  return result.value;
 }

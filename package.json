@@ -3,5 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "start": "node server.mjs", "test": "node --test engine.test.mjs initialized-engine.test.mjs i18n.test.mjs level-semantics.test.mjs campaign.test.mjs weighted-scoring.test.mjs refinement-risk.test.mjs invariant-simplification.test.mjs" }
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test engine.test.mjs initialized-engine.test.mjs i18n.test.mjs level-semantics.test.mjs campaign.test.mjs weighted-scoring.test.mjs refinement-risk.test.mjs invariant-simplification.test.mjs staged-order.test.mjs firing-sequence.test.mjs artillery-audio.test.mjs battle-effects.test.mjs"
+  }
 }

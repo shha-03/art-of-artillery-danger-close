@@ -1,8 +1,11 @@
-import { parseExpression, evaluate, initialStatesForLevel, traceInputsForLevel, isInitializedLevel, projectPredicate, previewCandidatesForLevel, createBattle, order, formatEngineError } from './engine.js';
+import { parseExpression, evaluate, initialStatesForLevel, traceInputsForLevel, isInitializedLevel, projectPredicate, previewCandidatesForLevel, createBattle, orderStages, formatEngineError } from './engine.js';
 import { LEVELS, CHAPTERS } from './levels.js';
 import { LANGUAGE_STORAGE_KEY, resolveLanguage, translate } from './i18n.js';
 import { applyStaticTranslations, renderHintContent, UI_COPY } from './ui-copy.js';
 import { UNIT_TYPES, unitPoints, unitSymbol } from './unit-types.js';
+import { createArtilleryAudio } from './artillery-audio.js';
+import { createBattleEffects } from './battle-effects.js';
+import { runFiringSequence, stagePassed } from './firing-sequence.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -12,8 +15,15 @@ const point = p => p ? `(${p.x}, ${p.y})` : '—';
 let levelIndex = 0, selectedInitialIndex = 0, battle, lastAnalysis = null, records = [], selectedTargets = new Set();
 let browsingChapter = CHAPTERS[0].id;
 let traceInputs = [], allowedInputCount = 0;
-let preview = true, traceVisible = false, busy = false, sound = false, audioContext = null;
+let preview = true, traceVisible = false, busy = false, sound = true;
 let witness = null, impacts = [], hintCount = 1, turnToken = 0, toastTimer;
+let firingPhase = 'idle', currentStage = null, sequenceStarted = false, sequenceAbort = null;
+let revealedStages = new Set();
+const SOUND_STORAGE_KEY = 'danger-close-sound-v1';
+try { sound = localStorage.getItem(SOUND_STORAGE_KEY) !== 'off'; } catch {}
+const artilleryAudio = createArtilleryAudio();
+artilleryAudio.setEnabled(sound);
+const battleEffects = createBattleEffects({ grid: $('grid'), battlefield: document.querySelector('.battlefield'), commandPanel: document.querySelector('.command-panel') });
 const BEST_STORAGE_KEY = 'danger-close-best-general-v1';
 const PREVIOUS_BEST_STORAGE_KEY = 'danger-close-best-branches-v1';
 const LEGACY_BEST_STORAGE_KEY = 'danger-close-best-math-v2';
@@ -176,7 +186,7 @@ function renderMap() {
   cells.push(`<svg class="trace-layer" viewBox="0 0 ${l.size*100} ${l.size*100}" aria-hidden="true">${overlay}</svg>`);
   $('grid').style.setProperty('--size',l.size); $('grid').innerHTML=cells.join('');
   $('map-sector').textContent=`SECTOR ${pad(levelIndex+1)} · ${pad(l.size)} × ${pad(l.size)}`;
-  $('map-status').textContent = battle.finished ? t(battle.cleared?'mapCleared':'mapEnded') : candidates.length?t('mapCandidates',{count:candidates.length,point:point(candidates[0]),status:t(lastAnalysis?.valid?'verified':'pending')}):t('noCandidates');
+  $('map-status').textContent = battle.finished ? t(battle.cleared?'mapCleared':'mapEnded') : candidates.length?t('mapCandidates',{count:candidates.length,point:point(candidates[0]),status:t(lastAnalysis?.valid&&stagePassed(lastAnalysis,'goal')?'verified':'pending')}):t('noCandidates');
   $('preview-button').classList.toggle('active',preview); $('preview-button').setAttribute('aria-pressed',String(preview));
   $('trace-button').classList.toggle('active',traceVisible); $('trace-button').setAttribute('aria-pressed',String(traceVisible));
   renderUnitRoster();
@@ -201,6 +211,9 @@ function renderStats() {
   const disabled=busy||battle.finished||!$('goal-input').value.trim()||!$('invariant-input').value.trim();
   $('single-button').disabled=disabled; $('salvo-button').disabled=disabled;
   $('restart-button').disabled=busy; $('invariant-input').disabled=busy||battle.finished; $('goal-input').disabled=busy||battle.finished;
+  $('language-select').disabled=busy; $('chapter-select').disabled=busy;
+  for (const id of ['preview-button','trace-button','hint-button','help-button','domain-button']) $(id).disabled=busy;
+  document.querySelectorAll('[data-initial-index], [data-insert]').forEach(button=>{button.disabled=busy;});
   $('target-enemies').disabled=busy||battle.finished;
   const proofOnly=isInitializedLevel(level())&&!battle.enemies.length&&!battle.finished;
   for(const mode of ['single','salvo']) {
@@ -212,16 +225,33 @@ function renderStats() {
 }
 function renderChecks() {
   $('verification-strip').innerHTML=['initial','preservation','goal'].map(k=>{
-    const check=lastAnalysis?.[k], pending=Boolean(lastAnalysis?.error)||!check||typeof check.pass!=='boolean';
-    const detail=pending?t(lastAnalysis?.error?'incomplete':'afterOrder'):check.pass?t(k==='initial'?(level().initialCondition!==undefined?'initialDomainPassed':'initialPassed'):'passed',{count:check.checkedCount}):t(k==='goal'?'unproven':'dud');
-    return `<div class="check-item ${pending?'pending':check.pass?'pass':'fail'}"><span class="check-icon">${pending?'○':check.pass?'✓':'×'}</span><span class="check-title">${esc(t(k))}</span><span class="check-detail">${esc(detail)}</span></div>`;
+    const running=currentStage===k;
+    if(sequenceStarted&&!running&&!revealedStages.has(k))return '';
+    const check=lastAnalysis?.[k], failedError=lastAnalysis?.errorStage===k;
+    const pending=!failedError&&(!check||typeof check.pass!=='boolean');
+    const passed=stagePassed(lastAnalysis,k);
+    const state=running?'running':pending?'pending':passed?'pass':'fail';
+    const detail=running?t('checking'):pending?t('afterOrder'):failedError?t('incomplete'):passed?t(k==='initial'?(level().initialCondition!==undefined?'initialDomainPassed':'initialPassed'):'passed',{count:check.checkedCount}):t(k==='goal'?'unproven':'dud');
+    return `<div class="check-item ${state}" data-check="${k}" data-status="${state}"><span class="check-icon">${running?'◌':pending?'○':passed?'✓':'×'}</span><span class="check-title">${esc(t(k))}</span><span class="check-detail">${esc(detail)}</span></div>`;
   }).join('');
+}
+function renderSequence() {
+  const banner=$('sequence-status');
+  banner.dataset.phase=firingPhase;
+  banner.querySelector('.sequence-status-title').textContent=t(`sequence.${firingPhase}.title`);
+  banner.querySelector('.sequence-status-detail').textContent=t(`sequence.${firingPhase}.detail`);
+  if(busy&&['fire','flight-delay','flight','impact','radio'].includes(firingPhase))$('map-status').textContent=t(`sequence.${firingPhase}.title`);
+  $('verification-strip').setAttribute('aria-busy',String(Boolean(currentStage)));
 }
 function feedback(kind,title,body,detail='') {
   $('feedback-panel').dataset.kind=kind;
   $('feedback-panel').innerHTML=`<div class="feedback-title">${esc(title)}</div><div class="feedback-body">${esc(body)}</div>${detail?`<div class="feedback-witness">${esc(detail)}</div>`:''}`;
 }
 function witnessReport(analysis) {
+  if(analysis.initial.pass!==false&&analysis.preservation.pass!==false) {
+    const check=analysis.specification?.pass===false?analysis.specification:analysis.goal;
+    return t('goalFailed',{point:point(check.before)})+witnessContext(check.before);
+  }
   const initial=analysis.initial.pass===false;
   const check=initial?analysis.initial:analysis.preservation;
   return t(initial?'initialWitness':'preservationWitness',{before:point(check.before),after:point(check.after),outside:check.outsideDomain?t('outsideDomain'):''})+witnessContext(check.before);
@@ -236,6 +266,7 @@ function shotReport(event) {
 }
 function renderFeedback() {
   const f=feedbackState;
+  if(f.type==='sequencing')return feedback('ready',t(`sequence.${firingPhase}.title`),t(`sequence.${firingPhase}.detail`));
   if(f.type==='ready'||f.type==='modified') return feedback('ready',t(`${f.type}Title`),t(`${f.type}Body`));
   if(f.type==='error') return feedback('error',t('rejectedTitle'),formatEngineError(f.error,language),t('noCharge'));
   if(f.type==='empty') return feedback('ready',t('emptyTitle'),t('emptyBody'),t('noCharge'));
@@ -245,7 +276,7 @@ function renderFeedback() {
     return feedback('warning',t('proofRequiredTitle'),t('proofRequiredBody'),failing?witnessReport(a):t('goalFailed',{point:point(a.specification?.before||a.goal.before)})+witnessContext(a.specification?.before||a.goal.before));
   }
   if(f.type==='exception') return feedback('error',t('exceptionTitle'),formatEngineError(f.error,language));
-  if(f.type==='dud') return feedback('error',t('dudTitle',{mode:t(f.mode)}),t(f.analysis.initial.pass===false?'initialFailure':'preservationFailure'),witnessReport(f.analysis));
+  if(f.type==='dud') return feedback('error',t('dudTitle',{mode:t(f.mode)}),t(f.analysis.initial.pass===false?'initialFailure':f.analysis.preservation.pass===false?'preservationFailure':'exitFailure'),witnessReport(f.analysis));
   if(f.type==='fired') {
     const report=shotReport(f), goalPassed=f.analysis.goal.pass===true;
     feedback(report.friendly?'error':goalPassed?'success':'warning',t('firedTitle',report),t('damageReport',report),goalPassed?t('goalPassed'):t(level().initialCondition?.trim()==='true'?'unrestrictedGoalFailed':'goalFailed',{point:point(f.analysis.goal.before)})+witnessContext(f.analysis.goal.before));
@@ -260,12 +291,16 @@ function renderLogs() {
     return `<li class="log-entry"><span class="log-marker ${r.kind}"></span><div><strong>${esc(title)}</strong><p>${esc(body)}</p><code>${esc(r.expression)}</code></div><span class="log-time">#${pad(records.length-i)}</span></li>`;
   }).join(''):`<li class="empty-log">${esc(t('emptyLog'))}</li>`;
 }
-function render() {renderTabs();renderInitialInputs();renderStats();renderMap();renderChecks();renderLogs();renderFeedback();}
+function render() {renderTabs();renderInitialInputs();renderStats();renderMap();renderChecks();renderSequence();renderLogs();renderFeedback();}
 function invalidateAnalysis() {
+  if(busy)return;
+  sequenceStarted=false;revealedStages.clear();currentStage=null;firingPhase='idle';battleEffects.clear();
   lastAnalysis=null; witness=null; renderChecks();renderMap();renderStats();
-  feedbackState={type:'modified'};renderFeedback();
+  feedbackState={type:'modified'};renderFeedback();renderSequence();
 }
 function loadLevel(index) {
+  sequenceAbort?.abort();sequenceAbort=null;artilleryAudio.stopAll();battleEffects.clear();
+  firingPhase='idle';currentStage=null;sequenceStarted=false;revealedStages.clear();
   levelIndex=index; selectedInitialIndex=0; battle=createBattle(level()); lastAnalysis=null;records=[];selectedTargets=new Set();witness=null;impacts=[];hintCount=1;busy=false;turnToken++;
   browsingChapter=level().chapter;
   traceInputs=traceInputsForLevel(level()); allowedInputCount=initialStatesForLevel(level()).length;
@@ -283,58 +318,74 @@ function setSelectedGoal() {
   $('goal-input').value=[...selectedTargets].map(k=>{const [x,y]=k.split(',');return `(x == ${x} && y == ${y})`;}).join(' || ');
   invalidateAnalysis();
 }
-function playSound(dud=false) {
-  if(!sound) return;
-  try {
-    audioContext ||= new (window.AudioContext||window.webkitAudioContext)();
-    audioContext.resume(); const osc=audioContext.createOscillator(),gain=audioContext.createGain(),t=audioContext.currentTime;
-    osc.type=dud?'sine':'triangle';osc.frequency.setValueAtTime(dud?150:95,t);osc.frequency.exponentialRampToValueAtTime(dud?80:28,t+.22);
-    gain.gain.setValueAtTime(.0001,t);gain.gain.exponentialRampToValueAtTime(.13,t+.015);gain.gain.exponentialRampToValueAtTime(.0001,t+.28);
-    osc.connect(gain);gain.connect(audioContext.destination);osc.start(t);osc.stop(t+.3);
-  }catch{}
+function setFiringPhase(phase) {
+  firingPhase=phase;
+  if(phase!=='flight-delay')battleEffects.setPhase(phase);
+  renderSequence();renderFeedback();
+}
+function playCue(cue,options) {if(!document.hidden)artilleryAudio.play(cue,options);}
+function applyOrderResult(result,mode,expression) {
+  lastAnalysis=result.analysis||lastAnalysis;
+  battle=result.battle;
+  if(result.error) {feedbackState={type:'error',error:result};return;}
+  if(result.reason==='proved'||result.reason==='proof-required') {feedbackState={type:result.reason,analysis:lastAnalysis};return;}
+  if(result.dud) {
+    const failed=lastAnalysis.initial.pass===false?lastAnalysis.initial:lastAnalysis.preservation.pass===false?lastAnalysis.preservation:lastAnalysis.specification?.pass===false?lastAnalysis.specification:lastAnalysis.goal;
+    witness=failed?.before||null;
+    feedbackState={type:'dud',mode,analysis:lastAnalysis};
+    records.unshift({...feedbackState,kind:'dud',expression});
+  } else if(result.shots?.length) {
+    witness=null;
+    feedbackState={type:'fired',mode,analysis:lastAnalysis,shots:result.shots};
+    records.unshift({...feedbackState,kind:result.shots.some(s=>s.type==='friendly')?'dud':'success',expression});
+  } else feedbackState={type:'empty'};
 }
 async function fire(mode) {
   if(busy||battle.finished) return;
   if(!$('goal-input').value.trim()) { flash('missingGoal');$('goal-input').focus();return; }
-  busy=true;renderStats();
+  // Unlock in the user gesture, before any timer or verifier work.
+  if(sound)void artilleryAudio.unlock();
+  sequenceAbort?.abort();sequenceAbort=new AbortController();
+  const expression=$('invariant-input').value, goalSource=$('goal-input').value;
+  busy=true;sequenceStarted=true;revealedStages.clear();currentStage='initial';firingPhase='initial';
+  lastAnalysis=null;witness=null;impacts=[];battleEffects.clear();feedbackState={type:'sequencing'};
+  render();
   const currentToken=turnToken;
   try {
-    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-    const result=order(battle,$('invariant-input').value,$('goal-input').value,mode);
-    lastAnalysis=result.analysis || null;
-    if(result.error) {
-      busy=false;feedbackState={type:'error',error:result};render();return;
-    }
-    if(result.reason==='proved'||result.reason==='proof-required') {
-      battle=result.battle;busy=false;feedbackState={type:result.reason,analysis:lastAnalysis};render();
-      if(battle.finished)showResult();
-      return;
-    }
-    if(result.reason==='no-candidates' || result.cost===0) {
-      busy=false;feedbackState={type:'empty'};render();return;
-    }
-    battle=result.battle;
-    const shots=result.shots||[], friendly=shots.filter(s=>s.type==='friendly').length;
-    if(result.dud) {
-      const initial=lastAnalysis?.initial?.pass===false;
-      const check=initial?lastAnalysis.initial:lastAnalysis.preservation;
-      witness=check?.before || (initial?traceInputs[0]:null);
-      feedbackState={type:'dud',mode,analysis:lastAnalysis};
-      records.unshift({...feedbackState,kind:'dud',expression:$('invariant-input').value});
-      playSound(true);
-    } else {
-      impacts=shots;witness=lastAnalysis?.goal?.pass===false?lastAnalysis.goal.before:null;
-      feedbackState={type:'fired',mode,analysis:lastAnalysis,shots};
-      records.unshift({...feedbackState,kind:friendly?'dud':'success',expression:$('invariant-input').value});
-      playSound();
-    }
-    render();
-    await new Promise(resolve=>setTimeout(resolve,shots.length?850:400));
-    if(currentToken!==turnToken)return;
-    busy=false;impacts=[];render();
-    if(battle.finished)showResult();
+    await runFiringSequence({iterator:orderStages(battle,expression,goalSource,mode),mode,signal:sequenceAbort.signal,onEvent:event=>{
+      if(currentToken!==turnToken)return;
+      if(event.type==='checking') {
+        currentStage=event.stage;setFiringPhase(event.stage);renderChecks();
+      } else if(event.type==='checked') {
+        lastAnalysis=event.analysis;revealedStages.add(event.stage);currentStage=null;renderChecks();
+      } else if(event.type==='phase') {
+        currentStage=null;setFiringPhase(event.phase);
+        const cues={'breech-open':'breechOpen',loaded:'loadClose',fire:'fire',radio:'radio',failed:'failure'};
+        if(cues[event.phase])playCue(cues[event.phase]);
+        // Cut to the battlefield before flight begins. A long smooth scroll
+        // from the mobile command panel would hide the short shell animation.
+        if(event.phase==='flight-delay')document.querySelector('.battlefield').scrollIntoView({behavior:'instant',block:'center'});
+        if(event.phase==='flight') {
+          battleEffects.launch(event.shots,{mode,size:level().size});
+        }
+        if(event.phase==='impact') {
+          battleEffects.impact(event.shots,{mode,size:level().size});
+          playCue(mode==='salvo'?'salvoImpact':'impact',{count:event.shots.length});
+        }
+        if(event.phase==='radio')battleEffects.radio();
+      } else if(event.type==='commit') {
+        applyOrderResult(event.result,mode,expression);render();
+      } else if(event.type==='finished') {
+        currentStage=null;busy=false;
+        if(battle.finished){setFiringPhase('complete');playCue('bugle',{success:battle.cleared});}
+        else if(firingPhase!=='failed')setFiringPhase('idle');
+        render();
+        if(battle.finished)showResult();
+      }
+    }});
   } catch(error) {
-    busy=false;feedbackState={type:'exception',error};renderFeedback();renderStats();
+    artilleryAudio.stopAll();battleEffects.clear();currentStage=null;busy=false;
+    firingPhase='failed';feedbackState={type:'exception',error};render();
   }
 }
 function showResult() {
@@ -385,7 +436,7 @@ $('campaign-chapters').addEventListener('click',e=>{const b=e.target.closest('[d
 $('overview-button').addEventListener('click',showOverview);
 $('previous-round').addEventListener('click',()=>selectRound(levelIndex-1));
 $('next-round').addEventListener('click',nextRound);
-$('initial-inputs').addEventListener('click',e=>{const b=e.target.closest('[data-initial-index]');if(!b)return;selectedInitialIndex=Number(b.dataset.initialIndex);traceVisible=true;renderInitialInputs();renderMap();});
+$('initial-inputs').addEventListener('click',e=>{const b=e.target.closest('[data-initial-index]');if(!b||busy)return;selectedInitialIndex=Number(b.dataset.initialIndex);traceVisible=true;renderInitialInputs();renderMap();});
 $('grid').addEventListener('click',e=>{const b=e.target.closest('[data-cell]');if(!b||busy||battle.finished||isInitializedLevel(level()))return;const k=b.dataset.cell;selectedTargets.has(k)?selectedTargets.delete(k):selectedTargets.add(k);setSelectedGoal();});
 $('grid').addEventListener('pointerover',e=>{const b=e.target.closest('[data-cell]');if(b)$('hover-coordinate').textContent=`COORDINATE (${b.dataset.cell.replace(',',', ')})`;});
 $('grid').addEventListener('pointerleave',()=>{$('hover-coordinate').textContent=t('coordinatePrompt');});
@@ -406,7 +457,20 @@ $('hint-button').addEventListener('click',()=>{renderHints();openDialog('hint-di
 $('next-hint').addEventListener('click',()=>{hintCount++;renderHints();});
 $('result-retry').addEventListener('click',()=>{closeDialog('result-dialog');loadLevel(levelIndex);});
 $('result-next').addEventListener('click',()=>{closeDialog('result-dialog');nextRound();});
-$('sound-button').addEventListener('click',()=>{sound=!sound;renderSound();if(sound)playSound(true);});
+$('sound-button').addEventListener('click',async()=>{
+  sound=!sound;artilleryAudio.setEnabled(sound);renderSound();
+  try{localStorage.setItem(SOUND_STORAGE_KEY,sound?'on':'off');}catch{}
+  if(sound&&await artilleryAudio.unlock())playCue('radio');
+});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)artilleryAudio.stopAll();});
+window.addEventListener('pagehide',()=>{sequenceAbort?.abort();artilleryAudio.stopAll();battleEffects.clear();});
+window.addEventListener('pageshow',event=>{
+  if(event.persisted&&busy){
+    busy=false;currentStage=null;firingPhase=battle.finished?'complete':'idle';
+    sequenceStarted=false;revealedStages.clear();lastAnalysis=null;feedbackState={type:'modified'};render();
+    if(battle.finished){playCue('bugle',{success:battle.cleared});showResult();}
+  }
+});
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>closeDialog(b.dataset.close)));
 document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();}}));
 document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key==='Enter'&&!document.querySelector('dialog[open]')){e.preventDefault();fire(e.shiftKey?'salvo':'single');}});

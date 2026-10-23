@@ -141,10 +141,18 @@ for (const level of LEVELS) {
     assert.equal(coarse.valid, true, 'the disjunction, rather than an isolated basin, is a legal global invariant');
     assert.equal(coarse.initial.checkedCount, inputCount);
     const coarseFire = order(createBattle(level), coarseSource, level.goalSolution, 'salvo');
-    assert.equal(coarseFire.reason, 'fired');
     const witnesses = [...new Set(risks.flatMap(risk => keys(risk.friendlies)))].sort();
-    assert.deepEqual(keys(coarseFire.shots.filter(shot => shot.type === 'friendly')), witnesses);
-    assert.equal(coarseFire.battle.friendlyKills, witnesses.length);
+    const friendlyCells = new Set(keys(level.allies));
+    assert.deepEqual(keys(coarse.candidates.filter(cell => friendlyCells.has(key(cell)))), witnesses);
+    if (coarse.goal.pass) {
+      assert.equal(coarseFire.reason, 'fired');
+    } else {
+      assert.equal(coarseFire.reason, 'invalid-goal');
+      assert.equal(coarseFire.dud, true);
+      assert.equal(coarseFire.cost, 1);
+      assert.deepEqual(coarseFire.shots, []);
+    }
+    assert.equal(coarseFire.battle.friendlyKills, 0, 'unproved coarse targets cannot authorize friendly damage');
     if (witnesses.length) assert.equal(coarse.goal.pass, false);
 
     const exactFire = order(createBattle(level), level.solution, level.goalSolution, 'salvo');
