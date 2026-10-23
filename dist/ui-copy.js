@@ -5,7 +5,8 @@ import { translate } from './i18n.js';
 export const UI_COPY = {
   ko: {
     'ui.campaignDetails': '작전 선택',
-    'ui.programDetails': '프로그램·입력 확인',
+    'ui.programDetails': '입력·작전 설명',
+    'ui.programTitle': '고정 프로그램',
     'ui.fieldDetails': '전력·작전 기록',
     'meta.description': '불변식으로 포격을 지휘하라. Art of Artillery: Danger Close — 프로그램 검증 전술 퍼즐.',
     'brand.home': 'Art of Artillery: Danger Close 홈',
@@ -107,7 +108,8 @@ export const UI_COPY = {
   },
   en: {
     'ui.campaignDetails': 'Select operation',
-    'ui.programDetails': 'Program & inputs',
+    'ui.programDetails': 'Inputs & briefing',
+    'ui.programTitle': 'Fixed program',
     'ui.fieldDetails': 'Forces & operation log',
     'meta.description': 'Command artillery with loop invariants. Art of Artillery: Danger Close — a tactical program-verification puzzle.',
     'brand.home': 'Art of Artillery: Danger Close home',

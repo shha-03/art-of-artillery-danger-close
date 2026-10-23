@@ -698,7 +698,7 @@ summary:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; 
 .program-content .section-label { margin-top: 12px; }
 .program-content .input-help { color: var(--muted); }
 .field-details .log-panel { margin: 0; padding: 12px; }
-.workspace { grid-template-columns: minmax(0, 1.1fr) minmax(340px, 1fr); gap: 22px; }
+.workspace { grid-template-columns: minmax(240px, 1.05fr) minmax(220px, .95fr) minmax(300px, 1.05fr); gap: 16px; }
 .panel-heading, .command-panel > .panel-heading { min-height: 43px; padding: 7px 12px; }
 .command-panel > .panel-heading { padding-inline: 0; }
 .panel-heading > div:first-child { display: flex; align-items: baseline; gap: 10px; }
@@ -736,7 +736,7 @@ summary:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; 
 @media (min-width: 761px) {
   .map-panel { position: sticky; top: 10px; }
 }
-@media (max-width: 760px) {
+@media (max-width: 899px) {
   .topbar { height: auto; min-height: 44px; padding: 5px 12px; flex-wrap: wrap; gap: 0 12px; }
   .topbar-right { width: auto; margin-left: auto; gap: 12px; }
   .brand-name { font-size: 9px; }
@@ -759,4 +759,47 @@ summary:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; 
 
 @media (hover: hover) and (pointer: fine) {
   .panel-heading .icon-button, .command-panel .small-button { min-height: 30px; }
+}
+
+/* Read-only code remains beside the battlefield and firing console. */
+.program-panel { min-width: 0; }
+.program-panel > .panel-heading { padding-inline: 0; }
+.program-panel > .mission-concept { margin: 9px 0; font-size: 11px; line-height: 1.5; }
+.program-panel > .input-help { margin: 10px 0 5px; color: var(--muted); font-size: 10px; }
+.program-panel .code-panel { padding: 10px; border: 1px solid var(--line); }
+.program-panel .code-panel pre { font-size: 12px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.program-panel .code-line { display: grid; grid-template-columns: 20px minmax(0, 1fr); min-height: 1.7em; }
+.program-panel .line-number { min-width: 0; padding: 0; font-size: 9px; }
+.program-panel .code-line > span:last-child { white-space: pre-wrap; overflow-wrap: anywhere; }
+.program-panel .program-details { margin-top: 12px; }
+.program-panel .initial-inputs { flex-direction: column; }
+.program-panel .initial-input { flex-basis: auto; }
+.program-panel .initial-input-panel { border-bottom: 1px solid var(--line); }
+.command-panel .fire-button { gap: 7px; padding-inline: 9px; font-size: 12px; }
+.command-panel .button-shortcut { display: none; }
+@media (min-width: 900px) and (max-width: 1140px) {
+  .app-shell { width: calc(100% - 28px); }
+  .workspace { gap: 12px; }
+  .map-panel .panel-heading > div:first-child { display: block; }
+  .map-panel .panel-heading { padding-inline: 8px; }
+  .map-tools { gap: 0; }
+  .map-tools .icon-button { padding-inline: 5px; font-size: 9px; }
+  .map-caption { font-size: 8px; letter-spacing: 0; }
+  .map-caption > :last-child { max-width: 45%; text-align: right; }
+  .map-legend { gap: 5px 10px; }
+  .legend-item { font-size: 9px; }
+  .command-panel .panel-kicker { display: none; }
+  .command-panel .stat { padding-inline: 10px; }
+  .command-panel .stat:first-child { padding-left: 0; }
+  .command-panel .syntax-palette { gap: 3px; }
+  .command-panel .syntax-palette button { min-width: 32px; padding-inline: 5px; font-size: 10px; }
+}
+@media (max-width: 899px) and (min-width: 600px) {
+  .workspace { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .map-panel { position: static; }
+  .command-panel { grid-column: 1 / -1; }
+}
+@media (max-width: 599px) {
+  .workspace { grid-template-columns: minmax(0, 1fr); }
+  .program-panel .code-panel pre { font-size: 13px; }
 }

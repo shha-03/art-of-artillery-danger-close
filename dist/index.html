@@ -35,6 +35,25 @@
         <section class="log-panel" aria-labelledby="log-title"><div class="log-header"><h3 id="log-title" data-i18n="log.title">작전 기록</h3><span id="log-count">00 ENTRIES</span></div><ol id="log-list" class="log-list" aria-live="polite"><li class="empty-log" data-i18n="log.empty">명령 대기. 전장을 분석하고 초탄 사격을 준비하라.</li></ol></section>
         </details>
       </section>
+      <section class="program-panel" aria-labelledby="program-title">
+        <div class="panel-heading"><div><div class="panel-kicker">PROGRAM</div><h2 id="program-title" class="panel-title" data-i18n="ui.programTitle">고정 프로그램</h2></div></div>
+        <p id="mission-concept" class="mission-concept"></p>
+        <p class="input-help" data-i18n="command.initialization">초기화 · 반복문 진입 전 한 번 실행</p>
+        <div class="code-panel initialization-panel"><pre><code id="initialization-code"></code></pre></div>
+        <p class="input-help" data-i18n="command.loop">반복문 · x, y만 변경</p>
+        <div class="code-panel"><pre><code id="program-code"></code></pre></div>
+        <details class="program-details"><summary data-i18n="ui.programDetails">입력·작전 설명</summary>
+          <div class="program-content">
+        <p id="mission-brief" class="mission-brief"></p>
+        <div class="section-label" data-i18n-html="command.environment"><span>01</span> 외부 입력과 고정 프로그램 <small>READ ONLY</small></div>
+        <div class="initial-input-panel">
+          <div id="initial-condition-panel" class="initial-condition-panel" hidden><p class="initial-input-label" data-i18n="command.initialCondition">외부 입력 계약 · 모든 정수 쌍</p><strong id="initial-condition-description"></strong><code id="initial-condition-code"></code><p id="initial-scope" class="input-help"></p></div>
+          <p id="initial-input-label" class="initial-input-label">대표 전장 입력 · 표시 예시 3개</p><div id="initial-inputs" class="initial-inputs" role="group" aria-labelledby="initial-input-label" aria-describedby="initial-input-help"></div><p id="initial-input-help" class="input-help">세 예시는 허용 입력을 제한하지 않는다. 검사는 항상 외부 입력 81개 전체에 적용한다.</p><p id="trace-summary" class="input-help trace-summary" hidden></p>
+        </div>
+        <p class="input-help" id="goal-help" data-i18n="command.goalHelp">입력과 결과의 관계를 나타내는 고정 명세이다. 불변식으로 보장하라. 지도에는 대표 입력 3개의 결과만 표시한다.</p>
+          </div>
+        </details>
+      </section>
       <section class="command-panel" aria-labelledby="command-title">
         <div class="panel-heading"><div><div class="panel-kicker">FIRE CONTROL</div><h2 id="command-title" class="panel-title" data-i18n="command.title">포격 지휘소</h2></div><button id="restart-button" class="small-button" data-i18n-title="command.restartTitle" title="현재 작전 처음부터 다시 시작" data-i18n="command.restart">↻ 작전 재시작</button></div>
         <div class="stats-grid"><div class="stat"><span class="stat-label" data-i18n="stat.orders">잔여 명령</span><div><strong class="stat-value" id="remaining-stat">06</strong><span class="stat-unit" id="budget-stat">/ 06</span></div></div><div class="stat"><span class="stat-label" data-i18n="stat.kills">적군 격파</span><div><strong class="stat-value" id="kills-stat">00</strong><span class="stat-unit" id="enemies-stat">/ 03</span></div></div><div class="stat"><span class="stat-label" data-i18n="stat.score">작전 점수</span><div><strong class="stat-value" id="score-stat">06</strong><span class="stat-unit">PTS</span></div></div></div>
@@ -48,21 +67,6 @@
         <div class="verification-strip" id="verification-strip" aria-live="polite"><div class="check-item pending"><span class="check-icon">○</span><span class="check-title" data-i18n="check.init">초기 성립</span><span class="check-detail" data-i18n="check.pending">명령 후 검사</span></div><div class="check-item pending"><span class="check-icon">○</span><span class="check-title" data-i18n="check.maintenance">유지</span><span class="check-detail" data-i18n="check.pending">명령 후 검사</span></div><div class="check-item pending"><span class="check-icon">○</span><span class="check-title" data-i18n="check.exit">종료 보장</span><span class="check-detail" data-i18n="check.pending">명령 후 검사</span></div></div>
         <div class="command-actions"><button id="single-button" class="fire-button single"><span class="button-icon">⊙</span><span data-i18n-html="fire.single">단발 포격<small>1개 좌표 · 명령 −1</small></span><span class="button-shortcut">↵</span></button><button id="salvo-button" class="fire-button salvo"><span class="button-icon">✳</span><span data-i18n-html="fire.salvo">일제사<small>후보 전체 · 명령 −1</small></span><span class="button-shortcut">↗</span></button></div>
         <p class="command-note" id="command-note" data-i18n="command.initialNote">고정 수학 명세를 보장할 불변식을 작성하고 사격하라.</p>
-        <details class="program-details"><summary data-i18n="ui.programDetails">프로그램·입력 확인</summary>
-          <div class="program-content">
-        <p id="mission-concept" class="mission-concept"></p><p id="mission-brief" class="mission-brief"></p>
-        <div class="section-label" data-i18n-html="command.environment"><span>01</span> 외부 입력과 고정 프로그램 <small>READ ONLY</small></div>
-        <div class="initial-input-panel">
-          <div id="initial-condition-panel" class="initial-condition-panel" hidden><p class="initial-input-label" data-i18n="command.initialCondition">외부 입력 계약 · 모든 정수 쌍</p><strong id="initial-condition-description"></strong><code id="initial-condition-code"></code><p id="initial-scope" class="input-help"></p></div>
-          <p id="initial-input-label" class="initial-input-label">대표 전장 입력 · 표시 예시 3개</p><div id="initial-inputs" class="initial-inputs" role="group" aria-labelledby="initial-input-label" aria-describedby="initial-input-help"></div><p id="initial-input-help" class="input-help">세 예시는 허용 입력을 제한하지 않는다. 검사는 항상 외부 입력 81개 전체에 적용한다.</p><p id="trace-summary" class="input-help trace-summary" hidden></p>
-        </div>
-        <p class="input-help" data-i18n="command.initialization">초기화 · 반복문 진입 전 한 번 실행</p>
-        <div class="code-panel initialization-panel"><pre><code id="initialization-code"></code></pre></div>
-        <p class="input-help" data-i18n="command.loop">반복문 · x, y만 변경</p>
-        <div class="code-panel"><pre><code id="program-code"></code></pre></div>
-        <p class="input-help" id="goal-help" data-i18n="command.goalHelp">입력과 결과의 관계를 나타내는 고정 명세이다. 불변식으로 보장하라. 지도에는 대표 입력 3개의 결과만 표시한다.</p>
-          </div>
-        </details>
         <div id="feedback-panel" class="feedback-panel" data-kind="ready" aria-live="polite"><div class="feedback-title" data-i18n="feedback.readyTitle">사격 해법 입력 대기.</div><div class="feedback-body" data-i18n="feedback.readyBody">초기 성립·유지 통과 시 발포한다. 종료 보장 실패는 경고하며, 초기·유지 실패나 수식 오류는 발포를 중단한다.</div></div>
       </section>
     </div>
