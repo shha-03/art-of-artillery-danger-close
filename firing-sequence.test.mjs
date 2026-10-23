@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FIRING_TIMING, runFiringSequence, stagePassed } from './dist/firing-sequence.js';
+import { FIRING_TIMING, runFiringSequence, stagePassed, exitAllowsFire } from './dist/firing-sequence.js';
 
-function fixture(failedStage = null, extra = {}) {
+function fixture(failedStage = null, extra = {}, exitFields = {}) {
   const advances = [];
   const result = { shots: [{ x: 1, y: 2 }], battle: { remaining: 5 }, ...extra };
   function* steps() {
@@ -10,8 +10,9 @@ function fixture(failedStage = null, extra = {}) {
     for (const stage of ['initial', 'preservation', 'goal']) {
       advances.push(stage);
       analysis[stage] = { pass: stage !== failedStage };
+      if (stage === 'goal') Object.assign(analysis, exitFields);
       yield { stage, analysis: structuredClone(analysis) };
-      if (stage === failedStage) return { ...result, dud: true, shots: [] };
+      if (stage === failedStage && stage !== 'goal') return { ...result, dud: true, shots: [] };
     }
     return result;
   }
@@ -64,7 +65,7 @@ test('cancelling during loading prevents closure, exit verification and firing',
   assert.ok(!events.some(event => event.phase === 'breech-close' || event.phase === 'fire' || event.type === 'commit'));
 });
 
-for (const stage of ['initial', 'preservation', 'goal']) {
+for (const stage of ['initial', 'preservation']) {
   test(`${stage} failure stops later stages and never emits firing or impact`, async () => {
     const { iterator, advances } = fixture(stage);
     const events = [];
@@ -76,9 +77,52 @@ for (const stage of ['initial', 'preservation', 'goal']) {
   });
 }
 
-test('a fixed-specification failure fails the exit phase even if editable goal passes', () => {
+test('exit proof status remains false when the fixed specification fails', () => {
   assert.equal(stagePassed({ goal: { pass: true }, specification: { pass: false } }, 'goal'), false);
   assert.equal(stagePassed({ goal: { pass: true }, specification: { pass: true } }, 'goal'), true);
+});
+
+test('a false goal or fixed specification still fires and commits damage after radio', async () => {
+  for (const mode of ['single', 'salvo']) {
+    for (const failedCheck of ['goal', 'specification']) {
+      const { iterator, result } = fixture(failedCheck === 'goal' ? 'goal' : null, {},
+        failedCheck === 'specification' ? { specification: { pass: false } } : {});
+      const events = [];
+      await runFiringSequence({ iterator, mode, onEvent: event => events.push(event), wait: async () => {} });
+      const check = events.find(event => event.type === 'checked' && event.stage === 'goal');
+      assert.equal(stagePassed(check.analysis, 'goal'), false);
+      assert.equal(exitAllowsFire(check.analysis), true);
+      assert.ok(!events.some(event => event.phase === 'failed'));
+      assert.deepEqual(events.filter(event => event.type === 'phase').slice(-5).map(event => event.phase),
+        ['fire', 'flight-delay', 'flight', 'impact', 'radio']);
+      const commits = events.filter(event => event.type === 'commit');
+      assert.equal(commits.length, 1);
+      assert.equal(commits[0].result, result);
+      assert.ok(events.indexOf(commits[0]) > events.findIndex(event => event.phase === 'radio'));
+    }
+  }
+});
+
+test('an exit expression error cannot become a warning shot', async () => {
+  const errorFields = { goal: { pass: null }, error: 'arithmetic error', errorStage: 'goal' };
+  const { iterator } = fixture(null, { error: errorFields.error, shots: [], cost: 0 }, errorFields);
+  const events = [];
+  await runFiringSequence({ iterator, onEvent: event => events.push(event), wait: async () => {} });
+  assert.ok(events.some(event => event.phase === 'failed'));
+  assert.ok(!events.some(event => event.phase === 'fire' || event.phase === 'impact'));
+  assert.equal(events.find(event => event.type === 'commit').result.cost, 0);
+});
+
+test('firing permission requires completed checks and both invariant obligations', () => {
+  const report = { initial: { pass: true }, preservation: { pass: true }, goal: { pass: false } };
+  assert.equal(exitAllowsFire(report), true);
+  for (const stage of ['initial', 'preservation']) {
+    assert.equal(exitAllowsFire({ ...report, [stage]: { pass: false } }), false);
+  }
+  assert.equal(exitAllowsFire(null), false);
+  assert.equal(exitAllowsFire({ ...report, goal: { pass: null } }), false);
+  assert.equal(exitAllowsFire({ ...report, specification: { pass: null, skipped: true } }), false);
+  assert.equal(exitAllowsFire({ ...report, error: 'invalid expression' }), false);
 });
 
 test('an exit-stage expression error preserves completed earlier successes', () => {

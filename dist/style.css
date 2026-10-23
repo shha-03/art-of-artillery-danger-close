@@ -227,6 +227,9 @@ input[readonly] { cursor: default; }
 .check-item.fail { background: #372820; border-color: #875339; }
 .check-item.fail .check-icon { color: #f1c0a5; border-color: #b16c48; background: #663c29; }
 .check-item.fail .check-title { color: #e6a57f; }
+.check-item.warning { background: #342f20; border-color: #897044; }
+.check-item.warning .check-icon { color: #f0d49c; border-color: #bd9859; background: #64502b; }
+.check-item.warning .check-title, .check-item.warning .check-detail { color: #e1c790; }
 .check-item.pending .check-icon { opacity: .5; }
 .command-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .fire-button { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 52px; padding: 12px 13px; border: 1px solid #576047; border-radius: 2px; background: #303a29; font-size: 13px; font-weight: 700; transition: background-color .15s, border-color .15s, transform .15s; }

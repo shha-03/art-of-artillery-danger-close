@@ -138,7 +138,7 @@ test('raw inputs and constants cannot be overwritten by initialization or transi
   assert.ok(mutation.error);
 });
 
-test('a coordinate-union proof and editable true goal cannot bypass the fixed mathematical specification', () => {
+test('a weak invariant can fire but cannot bypass the fixed specification or free final proof', () => {
   const level = mission();
   const broad = 'x >= 0 && y >= 0 && x + y <= 8';
   const result = analyze(broad, 'true', level);
@@ -151,38 +151,38 @@ test('a coordinate-union proof and editable true goal cannot bypass the fixed ma
   assert.notEqual(witness.y, witness.n + witness.m);
   assert.equal(witness.a, -4);
   assert.equal(witness.b, -4);
-  const rejected = order(createBattle(level), broad, 'true', 'salvo');
-  assert.equal(rejected.reason, 'invalid-specification');
-  assert.equal(rejected.cost, 1);
-  assert.equal(rejected.dud, true);
-  assert.deepEqual(rejected.shots, []);
-  assert.deepEqual(rejected.battle.enemies, level.enemies);
-  assert.equal(rejected.battle.cleared, false);
-  assert.equal(rejected.battle.finished, false);
-  // A persisted battlefield from the previous rule may already be empty.
-  // Keep its final mathematical proof free without allowing new unsafe shots.
-  const emptied = { ...rejected.battle, enemies: [] };
-  const incomplete = order(emptied, broad, 'true', 'single');
+  const fired = order(createBattle(level), broad, 'true', 'salvo');
+  assert.equal(fired.reason, 'fired');
+  assert.equal(fired.cost, 1);
+  assert.equal(fired.dud, false);
+  assert.equal(fired.battle.enemies.length, 0);
+  assert.equal(fired.battle.friendlyKills, 2);
+  assert.equal(fired.battle.cleared, false);
+  assert.equal(fired.battle.finished, false);
+  const incomplete = order(fired.battle, broad, 'true', 'single');
   assert.equal(incomplete.reason, 'proof-required');
   assert.equal(incomplete.cost, 0);
-  assert.equal(incomplete.battle.remaining, emptied.remaining);
+  assert.equal(incomplete.battle.remaining, fired.battle.remaining);
   const completed = order(incomplete.battle, solution, goal, 'single');
   assert.equal(completed.reason, 'proved');
   assert.equal(completed.cost, 0);
   assert.equal(completed.battle.cleared, true);
   assert.equal(completed.battle.finished, true);
-  assert.equal(completed.battle.remaining, emptied.remaining);
-  assert.equal(completed.battle.score, emptied.score);
+  assert.equal(completed.battle.remaining, fired.battle.remaining);
+  assert.equal(completed.battle.score, fired.battle.score);
   assert.deepEqual(completed.shots, []);
-  assert.deepEqual(completed.battle.hit, emptied.hit);
+  assert.deepEqual(completed.battle.hit, fired.battle.hit);
 });
 
-test('an existing empty board with no commands still permits its free final proof', () => {
-  const level = mission({ commands: 0, enemies: [] });
-  const before = createBattle(level);
-  assert.equal(before.remaining, 0);
-  assert.equal(before.finished, false);
-  const failed = order(before, 'false', goal, 'single');
+test('the last unproved salvo may empty the board without blocking its free final proof', () => {
+  const level = mission({ commands: 1 });
+  const first = order(createBattle(level), 'x >= 0 && y >= 0 && x + y <= 8', 'false', 'salvo');
+  assert.equal(first.battle.remaining, 0);
+  assert.equal(first.battle.enemies.length, 0);
+  assert.equal(first.battle.finished, false);
+  assert.equal(first.analysis.goal.pass, false);
+  assert.equal(first.analysis.specification.pass, false);
+  const failed = order(first.battle, 'false', goal, 'single');
   assert.equal(failed.reason, 'proof-required');
   assert.equal(failed.cost, 0);
   assert.equal(failed.battle.remaining, 0);
@@ -192,17 +192,17 @@ test('an existing empty board with no commands still permits its free final proo
   assert.equal(completed.battle.remaining, 0);
 });
 
-test('an earlier correct proof cannot authorize shots under a later weak invariant', () => {
+test('an earlier correct proof cannot permanently authorize mission completion under a later weak invariant', () => {
   const level = mission();
   const first = order(createBattle(level), solution, goal, 'single');
   assert.equal(first.battle.objectiveVerified, true);
   assert.equal(first.battle.cleared, false);
   const last = order(first.battle, 'x >= 0 && y >= 0 && x + y <= 8', 'true', 'salvo');
-  assert.equal(last.reason, 'invalid-specification');
-  assert.equal(last.dud, true);
-  assert.deepEqual(last.shots, []);
+  assert.equal(last.reason, 'fired');
+  assert.equal(last.dud, false);
+  assert.ok(last.shots.length > 0);
   assert.equal(last.battle.objectiveVerified, false);
-  assert.deepEqual(last.battle.enemies, first.battle.enemies);
+  assert.equal(last.battle.enemies.length, 0);
   assert.equal(last.battle.cleared, false);
 });
 

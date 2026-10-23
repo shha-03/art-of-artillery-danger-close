@@ -93,7 +93,7 @@ test('preservation stops at its first failure without later transitions or goal 
   assert.equal(transitions, 1);
 });
 
-test('false ensures blocks all damage and charges one command after three stages', () => {
+test('false ensures remains a warning while shots and one command charge follow all three stages', () => {
   const battle = createBattle(fixture());
   const iterator = orderStages(battle, invariant, 'false', 'salvo');
   nextStage(iterator, 'initial');
@@ -103,13 +103,58 @@ test('false ensures blocks all damage and charges one command after three stages
   assert.equal(terminal.goal.pass, false);
   const final = iterator.next();
   assert.equal(final.done, true);
-  assert.equal(final.value.reason, 'invalid-goal');
-  assert.equal(final.value.dud, true);
+  assert.equal(final.value.reason, 'fired');
+  assert.equal(final.value.dud, false);
   assert.equal(final.value.cost, 1);
-  assert.deepEqual(final.value.shots, []);
-  assert.deepEqual(final.value.battle.enemies, battle.enemies);
+  assert.deepEqual(final.value.shots, [{ x: 2, y: 0, type: 'enemy', points: 1 }]);
+  assert.equal(final.value.battle.enemies.length, 0);
   assert.deepEqual(final.value.battle.allies, battle.allies);
-  assert.deepEqual(final.value.battle.hit, battle.hit);
+  assert.equal(final.value.battle.hit.length, 1);
+  assert.equal(battle.hit.length, 0);
+});
+
+test('an unproved salvo has greater enemy return and friendly exposure than one shot for the same command cost', () => {
+  const battle = createBattle(fixture({
+    guardSource: 'false',
+    enemies: [{ x: 2, y: 0, branch: 'infantry' }, { x: 3, y: 0, branch: 'armor' }, { x: 4, y: 0, branch: 'artillery' }],
+    allies: [{ x: 0, y: 0, branch: 'infantry' }, { x: 1, y: 0, branch: 'armor' }],
+  }));
+  const source = 'x >= 0 && x <= 4 && y == 0';
+  const single = order(battle, source, 'x >= 2', 'single');
+  const salvo = order(battle, source, 'x >= 2', 'salvo');
+  for (const result of [single, salvo]) {
+    assert.equal(result.reason, 'fired');
+    assert.equal(result.analysis.goal.pass, false);
+    assert.equal(result.analysis.exitStateCount, 5);
+    assert.equal(result.analysis.candidates.length, 5, 'goal witnesses do not truncate the firing region');
+    assert.equal(result.dud, false);
+    assert.equal(result.cost, 1);
+    assert.equal(result.battle.remaining, 5);
+  }
+  assert.deepEqual(single.shots, [{ x: 0, y: 0, branch: 'infantry', type: 'friendly', points: 2 }]);
+  assert.equal(single.enemyPoints, 0);
+  assert.equal(single.friendlyPoints, 2);
+  assert.equal(single.battle.score, 3);
+  assert.equal(salvo.enemyPoints, 12);
+  assert.equal(salvo.friendlyPoints, 6);
+  assert.equal(salvo.battle.score, 11);
+  assert.deepEqual(salvo.shots.map(shot => [shot.x, shot.type]), [[0, 'friendly'], [1, 'friendly'], [2, 'enemy'], [3, 'enemy'], [4, 'enemy']]);
+  assert.equal(battle.remaining, 6);
+  assert.deepEqual(battle.hit, []);
+});
+
+test('a false exit witness cannot hide a later arithmetic error or authorize partial shots', () => {
+  const battle = createBattle(fixture({ guardSource: 'false' }));
+  const result = order(battle, invariant, 'x != 0 && 1 % (x - 1) == 0', 'salvo');
+  assert.equal(result.analysis.initial.pass, true);
+  assert.equal(result.analysis.preservation.pass, true);
+  assert.equal(result.errorCode, 'zero-remainder-divisor');
+  assert.equal(result.errorStage, 'goal');
+  assert.equal(result.errorCheck, 'goal');
+  assert.equal(result.analysis.goal.pass, null);
+  assert.equal(result.cost, 0);
+  assert.equal(result.battle, battle);
+  assert.deepEqual(result.shots, []);
 });
 
 test('goal errors preserve completed flags, identify their stage, and remain free', () => {
@@ -154,7 +199,7 @@ test('initial and preservation errors yield only the reached stages and never ch
   }
 });
 
-test('the fixed specification cannot be bypassed and is not read before the goal stage', () => {
+test('fixed-specification failure warns without firing permission becoming mission-completion permission', () => {
   const battle = createBattle(fixture({
     initialize: ({ a, b }) => ({ x: 0, y: 0, n: Math.abs(a), m: Math.abs(b) }),
     battleInputs: [{ a: 0, b: 0 }, { a: 1, b: 0 }, { a: 2, b: 0 }],
@@ -172,17 +217,21 @@ test('the fixed specification cannot be bypassed and is not read before the goal
   assert.equal(terminal.objectiveVerified, false);
   assert.equal(specificationReads, 1);
   const final = iterator.next();
-  assert.equal(final.value.reason, 'invalid-specification');
+  assert.equal(final.value.reason, 'fired');
   assert.equal(final.value.cost, 1);
-  assert.deepEqual(final.value.shots, []);
-  assert.deepEqual(final.value.battle.enemies, battle.enemies);
+  assert.equal(final.value.shots.length, 1);
+  assert.equal(final.value.battle.enemies.length, 0);
+  assert.equal(final.value.battle.cleared, false);
+  assert.equal(final.value.battle.finished, false);
 
-  Object.defineProperty(battle.level, 'goalSolution', { get() { throw new Error('future specification must not run'); } });
-  const stopped = order(battle, invariant, 'false', 'salvo');
-  assert.equal(stopped.reason, 'invalid-goal');
-  assert.equal(stopped.error, undefined);
-  assert.deepEqual(stopped.analysis.specification, skipped);
+  const bothFalse = order(battle, invariant, 'false', 'salvo');
+  assert.equal(bothFalse.reason, 'fired');
+  assert.equal(bothFalse.analysis.goal.pass, false);
+  assert.equal(bothFalse.analysis.specification.pass, false);
+  assert.equal(bothFalse.analysis.objectiveVerified, false);
+  assert.equal(specificationReads, 2, 'a false editable goal must not skip the fixed specification');
 
+  Object.defineProperty(battle.level, 'goalSolution', { get() { throw new Error('specification unavailable'); } });
   const failedSpecification = order(battle, invariant, 'true', 'salvo');
   assert.equal(failedSpecification.cost, 0);
   assert.equal(failedSpecification.battle, battle);
@@ -191,6 +240,25 @@ test('the fixed specification cannot be bypassed and is not read before the goal
   assert.equal(failedSpecification.analysis.goal.pass, true);
   assert.equal(failedSpecification.analysis.specification.pass, null);
   assert.deepEqual(failedSpecification.shots, []);
+});
+
+test('fixed-specification enumeration continues after false goals and false specification witnesses', () => {
+  const battle = createBattle(fixture({
+    initialize: ({ a, b }) => ({ x: 0, y: 0, n: Math.abs(a), m: Math.abs(b) }),
+    battleInputs: [{ a: 0, b: 0 }, { a: 1, b: 0 }, { a: 2, b: 0 }],
+    guardSource: 'false',
+    goalSolution: 'x != 0 && 1 % (x - 1) == 0',
+  }));
+  const result = order(battle, invariant, 'false', 'salvo');
+  assert.equal(result.analysis.goal.pass, false);
+  assert.equal(result.analysis.specification.pass, null);
+  assert.equal(result.analysis.candidates.length, 3);
+  assert.equal(result.errorCode, 'zero-remainder-divisor');
+  assert.equal(result.errorStage, 'goal');
+  assert.equal(result.errorCheck, 'specification');
+  assert.equal(result.cost, 0);
+  assert.equal(result.battle, battle);
+  assert.deepEqual(result.shots, []);
 });
 
 test('order drains the same staged operation while analyze retains independent full checks', () => {

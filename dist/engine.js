@@ -10,7 +10,8 @@ import { UNIT_TYPES, unitPoints } from './unit-types.js';
  * A successor outside that space FAILS preservation; it is never clipped.
  * `valid` means initial + preservation, independently of the goal check.
  * analyze runs all checks independently. Orders check them in sequence and
- * stop at the first failed or erroneous stage before any damage is applied.
+ * stop on initial/preservation failure or an error. False exit guarantees are
+ * warnings: they do not remove candidates or prevent an otherwise valid shot.
  */
 export const DOMAIN = Object.freeze({ min: -32, max: 32, stateCount: 4225 });
 export const INPUT_DOMAIN = Object.freeze({ min: -4, max: 4, stateCount: 81 });
@@ -685,13 +686,6 @@ function resolveOrder(battle, analysis, mode) {
     next.remaining--;
     return outcome({ battle: updateBattleStatus(next), analysis, dud: true, cost: 1, reason: 'invalid-invariant' });
   }
-  if (analysis.goal.pass !== true || (isInitializedLevel(battle.level) && analysis.specification?.pass !== true)) {
-    next.remaining--;
-    return outcome({
-      battle: updateBattleStatus(next), analysis, dud: true, cost: 1,
-      reason: analysis.goal.pass !== true ? 'invalid-goal' : 'invalid-specification',
-    });
-  }
   const hit = new Set(battle.hit.map(key));
   const enemies = new Map(battle.enemies.map((unit) => [key(unit), unit]));
   const allies = new Map(battle.allies.map((unit) => [key(unit), unit]));
@@ -723,12 +717,13 @@ function resolveOrder(battle, analysis, mode) {
 
 /**
  * Each next() performs one proof stage and yields an independent cumulative
- * snapshot. A failed/error stage is the last yield; the following next()
- * returns the final outcome. No command or damage is applied to the argument.
- * Unlike analyze, future predicates and traces are not evaluated after failure.
- * Initialization, preservation, editable ensures, and the fixed specification
- * must all pass before firing. A false check costs one command; expression
- * errors and a final proof on an already emptied initialized board remain free.
+ * snapshot. Initial/preservation failure or an error stops later stages; the
+ * following next() returns the final outcome. The argument is never mutated.
+ * Initialization and preservation gate firing; false ensures/specification
+ * results are warnings. Their full exit regions are still checked so a false
+ * witness cannot conceal a later arithmetic error or truncate target selection.
+ * Duds and successful orders cost one command. Expression errors and a final
+ * proof on an already emptied initialized board remain free.
  */
 export function* orderStages(battle, invariantSource, goalSource, mode = 'single') {
   if (mode !== 'single' && mode !== 'salvo') {
@@ -816,27 +811,24 @@ export function* orderStages(battle, invariantSource, goalSource, mode = 'single
     visitStates(before => {
       if (!evaluate(invariant, before) || evaluate(guard, before)) return;
       analysis.exitStateCount++;
-      if (!evaluate(goal, before)) {
+      if (!evaluate(goal, before) && analysis.goal.pass) {
         analysis.goal = { pass: false, before };
-        return false;
       }
       const displayed = !initialized || displayedInputs.has(`${before.a},${before.b}`);
       if (displayed && onBoard(before, level.size)) projected.set(key(before), point(before));
     });
-    if (analysis.goal.pass) {
-      analysis.candidates = [...projected.values()].sort((a, b) => a.x - b.x || a.y - b.y);
-      if (initialized) {
-        activeCheck = 'specification';
-        const specification = predicate(level.goalSolution, 'goal');
-        analysis.specification = { pass: true };
-        visitStates(before => {
-          if (evaluate(invariant, before) && !evaluate(guard, before) && !evaluate(specification, before)) {
-            analysis.specification = { pass: false, before };
-            return false;
-          }
-        });
-        analysis.objectiveVerified = analysis.specification.pass === true;
-      }
+    analysis.candidates = [...projected.values()].sort((a, b) => a.x - b.x || a.y - b.y);
+    if (initialized) {
+      activeCheck = 'specification';
+      const specification = predicate(level.goalSolution, 'goal');
+      analysis.specification = { pass: true };
+      visitStates(before => {
+        if (evaluate(invariant, before) && !evaluate(guard, before)
+          && !evaluate(specification, before) && analysis.specification.pass) {
+          analysis.specification = { pass: false, before };
+        }
+      });
+      analysis.objectiveVerified = analysis.valid && analysis.goal.pass && analysis.specification.pass;
     }
   } catch (error) { failWithError(error, 'goal', activeCheck); }
   yield snapshot('goal');

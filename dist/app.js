@@ -5,7 +5,7 @@ import { applyStaticTranslations, renderHintContent, UI_COPY } from './ui-copy.j
 import { UNIT_TYPES, unitPoints, unitSymbol } from './unit-types.js';
 import { createArtilleryAudio } from './artillery-audio.js';
 import { createBattleEffects } from './battle-effects.js';
-import { runFiringSequence, stagePassed } from './firing-sequence.js';
+import { runFiringSequence, stagePassed, exitAllowsFire } from './firing-sequence.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -186,7 +186,7 @@ function renderMap() {
   cells.push(`<svg class="trace-layer" viewBox="0 0 ${l.size*100} ${l.size*100}" aria-hidden="true">${overlay}</svg>`);
   $('grid').style.setProperty('--size',l.size); $('grid').innerHTML=cells.join('');
   $('map-sector').textContent=`SECTOR ${pad(levelIndex+1)} · ${pad(l.size)} × ${pad(l.size)}`;
-  $('map-status').textContent = battle.finished ? t(battle.cleared?'mapCleared':'mapEnded') : candidates.length?t('mapCandidates',{count:candidates.length,point:point(candidates[0]),status:t(lastAnalysis?.valid&&stagePassed(lastAnalysis,'goal')?'verified':'pending')}):t('noCandidates');
+  $('map-status').textContent = battle.finished ? t(battle.cleared?'mapCleared':'mapEnded') : candidates.length?t('mapCandidates',{count:candidates.length,point:point(candidates[0]),status:t(exitAllowsFire(lastAnalysis)?stagePassed(lastAnalysis,'goal')?'verified':'invariantVerified':'pending')}):t('noCandidates');
   $('preview-button').classList.toggle('active',preview); $('preview-button').setAttribute('aria-pressed',String(preview));
   $('trace-button').classList.toggle('active',traceVisible); $('trace-button').setAttribute('aria-pressed',String(traceVisible));
   renderUnitRoster();
@@ -230,17 +230,22 @@ function renderChecks() {
     const check=lastAnalysis?.[k], failedError=lastAnalysis?.errorStage===k;
     const pending=!failedError&&(!check||typeof check.pass!=='boolean');
     const passed=stagePassed(lastAnalysis,k);
-    const state=running?'running':pending?'pending':passed?'pass':'fail';
-    const detail=running?t('checking'):pending?t('afterOrder'):failedError?t('incomplete'):passed?t(k==='initial'?(level().initialCondition!==undefined?'initialDomainPassed':'initialPassed'):'passed',{count:check.checkedCount}):t(k==='goal'?'unproven':'dud');
-    return `<div class="check-item ${state}" data-check="${k}" data-status="${state}"><span class="check-icon">${running?'◌':pending?'○':passed?'✓':'×'}</span><span class="check-title">${esc(t(k))}</span><span class="check-detail">${esc(detail)}</span></div>`;
+    const warning=k==='goal'&&!passed&&exitAllowsFire(lastAnalysis);
+    const state=running?'running':pending?'pending':passed?'pass':warning?'warning':'fail';
+    const detail=running?t('checking'):pending?t('afterOrder'):failedError?t('incomplete'):passed?t(k==='initial'?(level().initialCondition!==undefined?'initialDomainPassed':'initialPassed'):'passed',{count:check.checkedCount}):t(warning?'unprovenFireAllowed':k==='goal'?'unproven':'dud');
+    return `<div class="check-item ${state}" data-check="${k}" data-status="${state}"><span class="check-icon">${running?'◌':pending?'○':passed?'✓':warning?'!':'×'}</span><span class="check-title">${esc(t(k))}</span><span class="check-detail">${esc(detail)}</span></div>`;
   }).join('');
+}
+function sequenceCopyPhase() {
+  return firingPhase==='fire'&&!stagePassed(lastAnalysis,'goal')?'fire-risk':firingPhase;
 }
 function renderSequence() {
   const banner=$('sequence-status');
   banner.dataset.phase=firingPhase;
-  banner.querySelector('.sequence-status-title').textContent=t(`sequence.${firingPhase}.title`);
-  banner.querySelector('.sequence-status-detail').textContent=t(`sequence.${firingPhase}.detail`);
-  if(busy&&['fire','flight-delay','flight','impact','radio'].includes(firingPhase))$('map-status').textContent=t(`sequence.${firingPhase}.title`);
+  const copyPhase=sequenceCopyPhase();
+  banner.querySelector('.sequence-status-title').textContent=t(`sequence.${copyPhase}.title`);
+  banner.querySelector('.sequence-status-detail').textContent=t(`sequence.${copyPhase}.detail`);
+  if(busy&&['fire','flight-delay','flight','impact','radio'].includes(firingPhase))$('map-status').textContent=t(`sequence.${copyPhase}.title`);
   $('verification-strip').setAttribute('aria-busy',String(Boolean(currentStage)));
 }
 function feedback(kind,title,body,detail='') {
@@ -266,7 +271,7 @@ function shotReport(event) {
 }
 function renderFeedback() {
   const f=feedbackState;
-  if(f.type==='sequencing')return feedback('ready',t(`sequence.${firingPhase}.title`),t(`sequence.${firingPhase}.detail`));
+  if(f.type==='sequencing')return feedback(sequenceCopyPhase()==='fire-risk'?'warning':'ready',t(`sequence.${sequenceCopyPhase()}.title`),t(`sequence.${sequenceCopyPhase()}.detail`));
   if(f.type==='ready'||f.type==='modified') return feedback('ready',t(`${f.type}Title`),t(`${f.type}Body`));
   if(f.type==='error') return feedback('error',t('rejectedTitle'),formatEngineError(f.error,language),t('noCharge'));
   if(f.type==='empty') return feedback('ready',t('emptyTitle'),t('emptyBody'),t('noCharge'));
@@ -278,8 +283,9 @@ function renderFeedback() {
   if(f.type==='exception') return feedback('error',t('exceptionTitle'),formatEngineError(f.error,language));
   if(f.type==='dud') return feedback('error',t('dudTitle',{mode:t(f.mode)}),t(f.analysis.initial.pass===false?'initialFailure':f.analysis.preservation.pass===false?'preservationFailure':'exitFailure'),witnessReport(f.analysis));
   if(f.type==='fired') {
-    const report=shotReport(f), goalPassed=f.analysis.goal.pass===true;
-    feedback(report.friendly?'error':goalPassed?'success':'warning',t('firedTitle',report),t('damageReport',report),goalPassed?t('goalPassed'):t(level().initialCondition?.trim()==='true'?'unrestrictedGoalFailed':'goalFailed',{point:point(f.analysis.goal.before)})+witnessContext(f.analysis.goal.before));
+    const report=shotReport(f), goalPassed=stagePassed(f.analysis,'goal');
+    const failed=f.analysis.specification?.pass===false?f.analysis.specification:f.analysis.goal;
+    feedback(report.friendly?'error':goalPassed?'success':'warning',t('firedTitle',report),t('damageReport',report),goalPassed?t('goalPassed'):t(level().initialCondition?.trim()==='true'?'unrestrictedGoalFailed':'goalFailed',{point:point(failed.before)})+witnessContext(failed.before));
   }
 }
 function renderLogs() {
@@ -287,7 +293,7 @@ function renderLogs() {
   $('log-list').innerHTML=records.length?records.map((r,i)=>{
     const report=r.type==='fired'?shotReport(r):{mode:t(r.mode)};
     const title=t(r.type==='dud'?'logDud':'logFired',report);
-    const body=r.type==='dud'?witnessReport(r.analysis):t('logShots',{...report,proof:r.analysis.goal.pass?t('proofSuffix'):''});
+    const body=r.type==='dud'?witnessReport(r.analysis):t('logShots',{...report,proof:t(stagePassed(r.analysis,'goal')?'proofSuffix':'unprovenSuffix')});
     return `<li class="log-entry"><span class="log-marker ${r.kind}"></span><div><strong>${esc(title)}</strong><p>${esc(body)}</p><code>${esc(r.expression)}</code></div><span class="log-time">#${pad(records.length-i)}</span></li>`;
   }).join(''):`<li class="empty-log">${esc(t('emptyLog'))}</li>`;
 }
@@ -337,7 +343,7 @@ function applyOrderResult(result,mode,expression) {
   } else if(result.shots?.length) {
     witness=null;
     feedbackState={type:'fired',mode,analysis:lastAnalysis,shots:result.shots};
-    records.unshift({...feedbackState,kind:result.shots.some(s=>s.type==='friendly')?'dud':'success',expression});
+    records.unshift({...feedbackState,kind:result.shots.some(s=>s.type==='friendly')?'dud':stagePassed(lastAnalysis,'goal')?'success':'warning',expression});
   } else feedbackState={type:'empty'};
 }
 async function fire(mode) {

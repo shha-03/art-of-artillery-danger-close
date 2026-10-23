@@ -11,6 +11,15 @@ export function stagePassed(analysis, stage) {
     && (stage !== 'goal' || !analysis.specification || analysis.specification.pass === true);
 }
 
+// A completed false exit check is a warning, not a dud. Unfinished checks and
+// expression errors still block firing, even after the first two stages pass.
+export function exitAllowsFire(analysis) {
+  return stagePassed(analysis, 'initial') && stagePassed(analysis, 'preservation')
+    && !analysis.error && !analysis.errorStage
+    && typeof analysis.goal?.pass === 'boolean'
+    && (!analysis.specification || typeof analysis.specification.pass === 'boolean');
+}
+
 function delay(milliseconds, signal) {
   return new Promise(resolve => {
     if (signal?.aborted) return resolve();
@@ -40,7 +49,8 @@ export async function runFiringSequence({ iterator, mode, onEvent, signal, wait 
     if (step.done) return finishEarly(step.value);
     if (step.value.stage !== stage) throw new Error('Verification stages arrived out of order.');
     emit({ type: 'checked', stage, analysis: step.value.analysis });
-    if (!stagePassed(step.value.analysis, stage)) {
+    if (!stagePassed(step.value.analysis, stage)
+      && !(stage === 'goal' && exitAllowsFire(step.value.analysis))) {
       const stopped = iterator.next();
       if (!stopped.done) throw new Error('Verifier continued after a failed stage.');
       return finishEarly(stopped.value);

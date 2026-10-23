@@ -154,8 +154,28 @@ test('the HTML exposes initialization and a read-only mathematical goal before J
   assert.match(goal, /\breadonly\b/);
   assert.match(goal, /aria-readonly="true"/);
   assert.match(html.match(/<button\b[^>]*id="target-enemies"[^>]*>/)?.[0] ?? '', /\bhidden\b/);
-  for (const key of ['manual.step1Body', 'manual.scopeBody', 'manual.reachability']) {
+  for (const key of ['manual.step1Body', 'manual.scopeBody', 'manual.reachability', 'map.warning', 'feedback.readyBody', 'manual.step3Body', 'manual.step4Body']) {
     assert.ok(html.includes(UI_COPY.ko[key]), `${key}: Korean fallback matches translated copy`);
   }
   assert.doesNotMatch(html, /적군 좌표를 클릭해|지도에서 표적을 지정하거나/);
+});
+
+test('both languages distinguish permission to fire from the exit guarantee and mission completion', () => {
+  for (const locale of ['ko', 'en']) {
+    for (const key of ['sequence.fire-risk.title', 'sequence.fire-risk.detail', 'invariantVerified', 'unprovenFireAllowed', 'unprovenSuffix']) {
+      assert.ok(COPY[locale][key]?.trim(), `${locale}: ${key}`);
+    }
+    const instructions = [COPY[locale].modifiedBody, COPY[locale].exitFailure, UI_COPY[locale]['feedback.readyBody'], UI_COPY[locale]['manual.step3Body']].join('\n');
+    assert.doesNotMatch(instructions, /모두 통과해야 발포|어느 단계든 실패|한 단계라도 실패|all three must pass|any failed check stops firing/i);
+  }
+  assert.match(COPY.ko['sequence.fire-risk.detail'], /발포와 적·아군 피해/);
+  assert.match(COPY.en['sequence.fire-risk.detail'], /execute the shot and apply enemy and friendly damage/);
+  assert.match(UI_COPY.ko['manual.step3Body'], /초기 성립·유지 실패[\s\S]*명령 1회/);
+  assert.match(UI_COPY.en['manual.step3Body'], /Failed initiation or preservation[\s\S]*costing one order/);
+  assert.match(UI_COPY.ko['manual.step3Body'], /구문·산술 오류는 명령 차감 없이/);
+  assert.match(UI_COPY.en['manual.step3Body'], /Syntax or arithmetic errors[\s\S]*without charge/);
+  assert.match(UI_COPY.ko['manual.step3Body'], /단발과 일제사는 모두 명령 1회[\s\S]*중립 → 아군 → 적군/);
+  assert.match(UI_COPY.en['manual.step3Body'], /Single shots and salvos each cost one order[\s\S]*neutral → friendly → enemy/);
+  assert.match(UI_COPY.ko['manual.step4Body'], /적 전멸과[\s\S]*고정 수학 명세[\s\S]*무료[\s\S]*0이어도/);
+  assert.match(UI_COPY.en['manual.step4Body'], /all enemies eliminated[\s\S]*fixed mathematical specification[\s\S]*free[\s\S]*zero/);
 });

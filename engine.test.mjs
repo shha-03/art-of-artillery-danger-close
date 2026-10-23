@@ -154,23 +154,17 @@ test('syntax errors, invalid modes and an empty valid candidate set cost nothing
   assert.equal(empty.cost, 0);
 });
 
-test('goal failure is a dud; a proved goal retains neutral then friendly then enemy priority', () => {
+test('goal failure permits firing with neutral then friendly then enemy priority', () => {
   let battle = createBattle(level());
   const invariant = 'x >= 0 && x <= 2 && y >= 0 && y <= 2';
-  const rejected = order(battle, invariant, 'x == 2 && y == 0', 'single');
-  assert.equal(rejected.analysis.goal.pass, false);
-  assert.equal(rejected.reason, 'invalid-goal');
-  assert.equal(rejected.cost, 1);
-  assert.equal(rejected.dud, true);
-  assert.deepEqual(rejected.shots, []);
-  assert.deepEqual(rejected.battle.enemies, battle.enemies);
-  assert.deepEqual(rejected.battle.allies, battle.allies);
-  const a = order(battle, invariant, 'x == 2', 'single');
-  assert.equal(a.analysis.goal.pass, true);
+  const a = order(battle, invariant, 'x == 2 && y == 0', 'single');
+  assert.equal(a.analysis.goal.pass, false);
+  assert.equal(a.reason, 'fired');
+  assert.equal(a.dud, false);
   assert.deepEqual(a.shots, [{ x: 2, y: 2, type: 'neutral', points: 0 }]);
-  const b = order(a.battle, invariant, 'x == 2', 'single');
+  const b = order(a.battle, invariant, 'x == 2 && y == 0', 'single');
   assert.deepEqual(b.shots, [{ x: 2, y: 1, type: 'friendly', points: 1 }]);
-  const c = order(b.battle, invariant, 'x == 2', 'single');
+  const c = order(b.battle, invariant, 'x == 2 && y == 0', 'single');
   assert.deepEqual(c.shots, [{ x: 2, y: 0, type: 'enemy', points: 1 }]);
   assert.equal(c.battle.friendlyKills, 1);
   assert.equal(c.battle.enemyKills, 1);
@@ -181,7 +175,7 @@ test('goal failure is a dud; a proved goal retains neutral then friendly then en
 
 test('tie breaks use x then y and salvo hits every unhit cell for one command', () => {
   const battle = createBattle(level({ guardSource: 'false' }));
-  const result = order(battle, 'x >= 0 && x <= 2 && y >= 0 && y <= 2', 'true', 'salvo');
+  const result = order(battle, 'x >= 0 && x <= 2 && y >= 0 && y <= 2', 'false', 'salvo');
   assert.equal(result.cost, 1);
   assert.equal(result.shots.length, 9);
   assert.equal(result.battle.remaining, 5);
