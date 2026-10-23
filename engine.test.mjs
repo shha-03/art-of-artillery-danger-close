@@ -29,7 +29,8 @@ const level = (overrides = {}) => ({
 test('parser implements integer arithmetic, precedence, unary operations and Boolean expressions', () => {
   assert.equal(evalAt('x*y + 2 * (y - x)'), 8);
   assert.equal(evalAt('x*y == 6 && !(x >= y) || false'), true);
-  assert.equal(evalAt('-x * +y % 4'), -2);
+  assert.equal(evalAt('-x * +y % 4'), 2);
+  assert.equal(evalAt('-x * +y / 4'), -2);
   assert.equal(evalAt('x != y && x <= 2 && y > 1'), true);
   assert.equal(evalAt('(true == !false) && true'), true);
   assert.equal(evalAt('y == 0 || x % y == 0', { x: 3, y: 0 }), true);
@@ -38,18 +39,19 @@ test('parser implements integer arithmetic, precedence, unary operations and Boo
 test('parser rejects execution, assignments, coercion, invalid syntax and excessive nesting', () => {
   for (const source of [
     '', 'globalThis.alert(1)', 'x = 3', 'x.constructor', 'Function("return 1")()',
-    'x & y', 'x / y', 'x +', '(x == 0', 'x < y < 3', 'x == true', 'x && true', '!x',
+    'x & y', 'x // y', 'x +', '(x == 0', 'x < y < 3', 'x == true', 'x && true', '!x',
     '1.5 == x', 'true + false', `${'('.repeat(150)}true${')'.repeat(150)}`,
   ]) assert.throws(() => parseExpression(source), undefined, source);
   assert.doesNotMatch(engineSource, /\b(?:eval|Function)\s*\(/);
 });
 
-test('unsafe literals, intermediate overflow, noninteger inputs and zero remainder are rejected', () => {
+test('unsafe literals, intermediate overflow, noninteger inputs and zero divisors are rejected', () => {
   assert.throws(() => parseExpression('9007199254740992'));
   assert.throws(() => evalAt('9007199254740991 + 1'));
   assert.throws(() => evalAt('x * 9007199254740991'));
   assert.throws(() => evalAt('x', { x: 0.5, y: 0 }));
   assert.throws(() => evalAt('x % 0'));
+  assert.throws(() => evalAt('x / 0'));
 });
 
 test('all 4225 states are checked and a sufficient invariant proves the exit', () => {
@@ -456,6 +458,7 @@ test('all remaining engine-controlled diagnostics carry codes and an English tra
     ['unexpected-token', () => parseExpression('x y')],
     ['invalid-ast', () => evaluate(null, { x: 0, y: 0 })],
     ['zero-remainder-divisor', () => evalAt('x % 0')],
+    ['zero-division-divisor', () => evalAt('x / 0')],
     ['unsupported-ast', () => evaluate({ kind: 'unsupported' }, { x: 0, y: 0 })],
     ['missing-step', () => createBattle(level({ step: undefined }))],
     ['invalid-layout', () => createBattle(level({ enemies: {} }))],

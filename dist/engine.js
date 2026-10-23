@@ -47,6 +47,7 @@ const ERROR_MESSAGES = {
     'unexpected-token': (p) => `잘못 배치된 '${p.token}' 확인. 수식 구성을 점검하라.`,
     'invalid-ast': () => '수식 구조 오류.',
     'zero-remainder-divisor': () => '0으로 나누는 나머지 연산 불가. 제수를 확인하라.',
+    'zero-division-divisor': () => '0으로 나누는 정수 나눗셈 불가. 제수를 확인하라.',
     'unsupported-ast': () => '미지원 수식 구조 확인.',
     'predicate-type': (p) => `${errorLabel(p.label, 'ko')}: 참/거짓을 나타내는 식을 입력하라.`,
     'invalid-initial': (p) => p.domains ? `초기 좌표 오류. 축별 정수 검증창을 확인하라: ${windowLabel(p)}.` : `초기 좌표 오류. 허용 범위는 ${p.min}부터 ${p.max} 사이의 정수이다.`,
@@ -91,6 +92,7 @@ const ERROR_MESSAGES = {
     'unexpected-token': (p) => `Unexpected token '${p.token}'. Check the expression structure.`,
     'invalid-ast': () => 'Expression structure invalid.',
     'zero-remainder-divisor': () => 'Remainder divisor is zero. Set a nonzero divisor.',
+    'zero-division-divisor': () => 'Integer division divisor is zero. Set a nonzero divisor.',
     'unsupported-ast': () => 'Unsupported expression structure detected.',
     'predicate-type': (p) => `${errorLabel(p.label, 'en')}: enter a Boolean expression.`,
     'invalid-initial': (p) => p.domains ? `Initial coordinates invalid. Check the integer window for every axis: ${windowLabel(p)}.` : `Initial coordinates invalid. Use integers from ${p.min} to ${p.max}.`,
@@ -165,6 +167,25 @@ function integer(value, label = 'arithmetic') {
   return value;
 }
 
+// Dafny Reference Manual §5.2.2: a = q*b+r and 0 <= r < abs(b).
+// https://dafny.org/dafny/DafnyRef/DafnyRef#sec-numeric-types
+// Use exact intermediates even near Number.MAX_SAFE_INTEGER. This does not
+// enlarge the accepted number range: operands and the returned value remain
+// checked safe integers, and no BigInt escapes into state or report objects.
+function euclideanArithmetic(left, right, operator) {
+  if (right === 0) {
+    throw engineError(operator === '/' ? 'zero-division-divisor' : 'zero-remainder-divisor', {}, RangeError);
+  }
+  const dividend = BigInt(left), divisor = BigInt(right);
+  let quotient = dividend / divisor;
+  let remainder = dividend % divisor;
+  if (remainder < 0n) {
+    if (divisor > 0n) { quotient--; remainder += divisor; }
+    else { quotient++; remainder -= divisor; }
+  }
+  return integer(Number(operator === '/' ? quotient : remainder));
+}
+
 function tokenize(source) {
   if (typeof source !== 'string' || !source.trim()) {
     throw expressionError('missing-expression');
@@ -176,7 +197,7 @@ function tokenize(source) {
     const rest = source.slice(position);
     const whitespace = /^\s+/.exec(rest);
     if (whitespace) { position += whitespace[0].length; continue; }
-    const match = /^(?:\d+|[A-Za-z_][A-Za-z_0-9]*|&&|\|\||==|!=|<=|>=|[+*%<>()!\-])/.exec(rest);
+    const match = /^(?:\d+|[A-Za-z_][A-Za-z_0-9]*|&&|\|\||==|!=|<=|>=|[+*\/%<>()!\-])/.exec(rest);
     if (!match) throw expressionError('unsupported-character', { character: source[position] }, position);
     tokens.push({ value: match[0], position });
     position += match[0].length;
@@ -213,7 +234,7 @@ export function parseExpression(source) {
     } else {
       needType(left, 'integer', token);
       needType(right, 'integer', token);
-      valueType = ['+', '-', '*', '%'].includes(op) ? 'integer' : 'boolean';
+      valueType = ['+', '-', '*', '/', '%'].includes(op) ? 'integer' : 'boolean';
     }
     return { kind: 'binary', op, left, right, valueType };
   }
@@ -230,7 +251,7 @@ export function parseExpression(source) {
   const parseEquality = () => chain(parseComparison, ['==', '!=']);
   const parseComparison = () => chain(parseAdd, ['<', '<=', '>', '>=']);
   const parseAdd = () => chain(parseMultiply, ['+', '-']);
-  const parseMultiply = () => chain(parseUnary, ['*', '%']);
+  const parseMultiply = () => chain(parseUnary, ['*', '/', '%']);
   function parseUnary() {
     if (++depth > MAX_DEPTH) throw expressionError('nesting-too-deep', { limit: MAX_DEPTH }, peek().position);
     try {
@@ -267,8 +288,9 @@ export function parseExpression(source) {
 
 /**
  * Evaluate without eval/Function or JavaScript coercion. Integer arithmetic is
- * exact within the safe-integer range; overflow is rejected. `%` is remainder
- * with the dividend's sign. Boolean &&/|| short-circuit, including zero guards.
+ * exact within the safe-integer range; overflow is rejected. `/` and `%` use
+ * Dafny's Euclidean integer division: the modulus is always nonnegative.
+ * Boolean &&/|| short-circuit, including zero-divisor guards.
  */
 export function evaluate(ast, state) {
   function visit(node) {
@@ -290,9 +312,8 @@ export function evaluate(ast, state) {
         case '+': return integer(left + right);
         case '-': return integer(left - right);
         case '*': return integer(left * right);
-        case '%':
-          if (right === 0) throw engineError('zero-remainder-divisor', {}, RangeError);
-          return integer(left % right);
+        case '/':
+        case '%': return euclideanArithmetic(left, right, node.op);
         case '==': return left === right;
         case '!=': return left !== right;
         case '<': return left < right;

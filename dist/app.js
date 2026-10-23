@@ -1,5 +1,6 @@
 import { parseExpression, evaluate, initialStatesForLevel, traceInputsForLevel, isInitializedLevel, variablesForLevel, domainsForLevel, stateKey, statePoint, projectPredicate, previewCandidatesForLevel, createBattle, orderStages, formatEngineError } from './engine.js';
 import { LEVELS, CHAPTERS } from './levels.js';
+import { dafnyProgram } from './dafny-program.js';
 import { LANGUAGE_STORAGE_KEY, resolveLanguage, translate } from './i18n.js';
 import { applyStaticTranslations, renderHintContent, UI_COPY } from './ui-copy.js';
 import { UNIT_TYPES, unitPoints, unitSymbol } from './unit-types.js';
@@ -367,8 +368,9 @@ function loadLevel(index) {
   $('goal-input').readOnly=isInitializedLevel(level());
   $('target-enemies').hidden=isInitializedLevel(level());
   $('mission-brief').textContent=levelCopy().brief;
-  $('initialization-code').textContent=level().initializationCode||'';
-  $('program-code').innerHTML=level().code.split('\n').map((line,i)=>`<span class="code-line"><span class="line-number">${pad(i+1)}</span><span>${esc(line).replace(/\b(while|if|else)\b/g,'<span class="code-keyword">$1</span>')}</span></span>`).join('');
+  const program=dafnyProgram(level());
+  $('initialization-code').textContent=program.initializationCode;
+  $('program-code').innerHTML=program.code.split('\n').map((line,i)=>`<span class="code-line"><span class="line-number">${pad(i+1)}</span><span>${esc(line).replace(/\b(while|if|then|else|var|int)\b/g,'<span class="code-keyword">$1</span>')}</span></span>`).join('');
   feedbackState={type:'ready'};
   render();
 }

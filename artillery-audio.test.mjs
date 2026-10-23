@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { createArtilleryAudio } from './dist/artillery-audio.js';
+import { FIRING_TIMING } from './dist/firing-sequence.js';
 
 class Parameter {
   constructor() { this.events = []; }
@@ -96,7 +98,7 @@ function seededRandom() {
   return () => { value = (Math.imul(value, 1664525) + 1013904223) >>> 0; return value / 4294967296; };
 }
 
-const clipDurations = { 'breech-open.wav': 0.44, 'shell-load.wav': 0.58, 'breech-close.wav': 0.38 };
+const clipDurations = { 'sound1.mp3': 47232/44100, 'sound2.mp3': 51840/44100, 'sound3.mp3': 148608/44100 };
 function fixtureFetch(calls = []) {
   return async (url, options) => {
     const filename = new URL(url).pathname.split('/').at(-1);
@@ -185,7 +187,7 @@ test('muted, unavailable, rejected, and disposed audio paths fail silently witho
 
 test('every cue schedules finite layered sources, envelopes, and explicit source end times', async () => {
   const { audio, context } = await ready();
-  for (const cue of ['fire', 'impact', 'salvoImpact', 'radio', 'bugle', 'failure']) {
+  for (const cue of ['impact', 'salvoImpact', 'radio', 'bugle', 'failure']) {
     const first = context.sources.length;
     assert.equal(audio.play(cue), true, cue);
     const sources = context.sources.slice(first);
@@ -214,9 +216,14 @@ test('every cue schedules finite layered sources, envelopes, and explicit source
   audio.dispose();
 });
 
-test('recorded mechanical cues play at original speed through the common master with no filter or reverb', async () => {
+test('recorded cues retain stereo and original speed, with only constant gain before the common master', async () => {
   const { audio, context } = await ready({ recordings: true });
-  for (const [cue, duration, stageDuration] of [['breechOpen', .44, .48], ['shellLoad', .58, .62], ['breechClose', .38, .44]]) {
+  for (const [cue, offset, limit, stageDuration] of [
+    ['breechOpen',0,.68,FIRING_TIMING.breech/1000],
+    ['shellLoad',0,Infinity,FIRING_TIMING.load/1000],
+    ['breechClose',.68,Infinity,FIRING_TIMING.close/1000],
+    ['fire',0,Infinity,Infinity],
+  ]) {
     const first = context.sources.length;
     assert.equal(audio.play(cue), true);
     const sources = context.sources.slice(first);
@@ -224,11 +231,17 @@ test('recorded mechanical cues play at original speed through the common master 
     const source = sources[0];
     assert.equal(source.loop, false);
     assert.equal(source.playbackRate.events[0].value, 1);
-    assert.equal(source.starts[0].offset, 0);
+    const duration=Math.min(source.buffer.duration-offset,limit);
+    assert.equal(source.starts[0].offset, offset);
     assert.equal(source.starts[0].duration, duration);
     assert.equal(source.buffer.numberOfChannels, 2);
     assert.equal(source.connections.length, 1);
-    assert.equal(source.connections[0].kind, 'compressor');
+    const gain=source.connections[0];
+    assert.equal(gain.kind, 'gain');
+    assert.equal(gain.gain.events.length,1,'no envelope changes the original recording');
+    assert.equal(gain.gain.events[0].method,'set');
+    assert.ok(gain.gain.events[0].value>0&&gain.gain.events[0].value<8);
+    assert.equal(gain.connections[0].kind, 'compressor');
     assert.ok(Math.abs(source.stops[0] - source.starts[0].time - duration) < 1e-9);
     assert.ok(source.stops[0] <= context.currentTime + stageDuration);
     assert.equal(context.nodes.some(node => ['filter', 'convolver', 'panner'].includes(node.kind)), false);
@@ -278,9 +291,9 @@ test('legacy loadClose plays the two recordings sequentially and stopAll cancels
   audio.dispose();
 });
 
-test('explosions combine low pressure, broadband shock and later debris without oscillator pitch dives', async () => {
+test('synthesized impacts combine low pressure, broadband shock and later debris without oscillator pitch dives', async () => {
   const { audio, context } = await ready();
-  for (const cue of ['fire', 'impact']) {
+  for (const cue of ['impact']) {
     const first = context.sources.length;
     audio.play(cue);
     const sources = context.sources.slice(first);
@@ -315,7 +328,7 @@ test('an 81-cell salvo is a bounded stereo cluster with several nearly simultane
 
 test('OFF immediately cancels future notes and current voices, disconnects reverb, and cannot revive old tails', async () => {
   const { audio, context } = await ready();
-  audio.play('bugle'); audio.play('fire');
+  audio.play('bugle'); audio.play('impact');
   assert.ok(context.sources.some(source => source.starts[0].time > context.currentTime + .7));
   const sources = [...context.sources];
   const oldConvolver = context.nodes.find(node => node.kind === 'convolver');
@@ -358,14 +371,13 @@ test('repeated salvos enforce the global voice limit and ending voices releases 
   for (const source of context.sources) source.finish();
   assert.ok(context.sources.every(source => source.onended === null));
   assert.ok(context.sources.every(source => source.disconnected));
-  assert.equal(audio.play('fire'), true, 'completion does not disable future audio');
+  assert.equal(audio.play('impact'), true, 'completion does not disable future audio');
   audio.dispose();
   assert.ok(context.nodes.filter(node => node.kind !== 'destination').every(node => node.disconnected));
 });
 
 test('stereo-unavailable browsers retain a safe mono signal and cached procedural buffers contain finite audio', async () => {
   const { audio, context } = await ready({ stereo: false });
-  assert.equal(audio.play('fire'), true);
   assert.equal(audio.play('impact'), true);
   assert.equal(context.nodes.some(node => node.kind === 'panner'), false);
   assert.equal(context.buffers.length, 3, 'white noise, brown noise, and one stereo impulse');
@@ -416,7 +428,7 @@ test('missing or undecodable recordings stay silent without suppressing unrelate
     const context = new AudioContext();
     const normalFetch = fixtureFetch();
     const fetcher = (url, options) => {
-      if (String(url).endsWith('breech-close.wav')) {
+      if (String(url).endsWith('sound1.mp3')) {
         if (failure === 'http') return Promise.resolve({ ok: false });
         if (failure === 'network') return Promise.reject(new Error('offline'));
       }
@@ -424,8 +436,8 @@ test('missing or undecodable recordings stay silent without suppressing unrelate
     };
     if (failure === 'decode') {
       const decode = context.decodeAudioData.bind(context);
-      context.decodeAudioData = bytes => new Float64Array(bytes)[0] === .38
-        ? Promise.reject(new Error('invalid WAV')) : decode(bytes);
+      context.decodeAudioData = bytes => new Float64Array(bytes)[0] === clipDurations['sound1.mp3']
+        ? Promise.reject(new Error('invalid MP3')) : decode(bytes);
     }
     if (failure === 'unsupported') context.decodeAudioData = undefined;
     const audio = createArtilleryAudio({ contextFactory: () => context, fetcher });
@@ -435,8 +447,12 @@ test('missing or undecodable recordings stay silent without suppressing unrelate
     assert.equal(audio.play('breechClose'), false, failure);
     assert.equal(audio.play('loadClose'), false, 'a partial combined cue does not schedule half a mechanism');
     assert.equal(context.sources.length, 0);
-    if (failure !== 'unsupported') assert.equal(audio.play('breechOpen'), true, 'one bad file does not block the other recording');
-    assert.equal(audio.play('fire'), true, 'procedural combat effects remain available');
+    assert.equal(audio.play('breechOpen'),false,'opening and closing share the unavailable file');
+    if (failure !== 'unsupported') {
+      assert.equal(audio.play('shellLoad'), true, 'one bad file does not block a different recording');
+      assert.equal(audio.play('fire'), true, 'the recorded firing cue is independently available');
+    }
+    assert.equal(audio.play('impact'), true, 'procedural combat effects remain available');
     audio.dispose();
   }
 });
@@ -537,18 +553,25 @@ test('a replacement context ignores stale decode completions and reuses the fetc
   audio.dispose();
 });
 
-test('oversized recordings are cut to the mechanical stage limit without playback-rate changes', async () => {
+test('loading and firing play full decoded files while breech slices share a continuous split', async () => {
   const context = new AudioContext();
   context.decodeAudioData = () => Promise.resolve(context.createBuffer(2, context.sampleRate * 2, context.sampleRate));
   const audio = createArtilleryAudio({ contextFactory: () => context, fetcher: fixtureFetch() });
   audio.setEnabled(true);
   assert.equal(await audio.prepare(), true);
-  for (const [cue, limit] of [['breechOpen', .48], ['shellLoad', .62], ['breechClose', .44]]) {
+  const sources={};
+  for (const cue of ['breechOpen','shellLoad','breechClose','fire']) {
     assert.equal(audio.play(cue), true);
     const source = context.sources.at(-1);
-    assert.ok(source.stops[0] < context.currentTime + limit);
+    sources[cue]=source;
     assert.equal(source.playbackRate.events[0].value, 1);
   }
+  assert.equal(sources.breechOpen.starts[0].duration,.68);
+  assert.equal(sources.breechClose.starts[0].offset,.68);
+  assert.equal(sources.breechClose.starts[0].duration,2-.68);
+  assert.equal(sources.breechOpen.buffer,sources.breechClose.buffer,'the mechanism uses one decoded source file');
+  assert.equal(sources.shellLoad.starts[0].duration,2,'the old loading cap cannot truncate a new source');
+  assert.equal(sources.fire.starts[0].duration,2,'the entire firing recording is retained');
   audio.dispose();
 });
 
@@ -597,27 +620,62 @@ test('a closed context pending resume cannot prevent or clear a replacement cont
   audio.dispose();
 });
 
-test('shipped recordings are valid 48 kHz stereo PCM16 WAVs within their animation stages', () => {
-  for (const [filename, expectedDuration] of Object.entries(clipDurations)) {
-    const bytes = readFileSync(new URL(`./dist/audio/${filename}`, import.meta.url));
-    assert.equal(bytes.toString('ascii', 0, 4), 'RIFF');
-    assert.equal(bytes.toString('ascii', 8, 12), 'WAVE');
-    let format, data;
-    for (let position = 12; position + 8 <= bytes.length;) {
-      const kind = bytes.toString('ascii', position, position + 4), length = bytes.readUInt32LE(position + 4);
-      assert.ok(position + 8 + length <= bytes.length, 'chunk fits the file');
-      if (kind === 'fmt ') format = bytes.subarray(position + 8, position + 8 + length);
-      if (kind === 'data') data = bytes.subarray(position + 8, position + 8 + length);
-      position += 8 + length + (length % 2);
+test('shipped MP3s preserve the original audio frames without private export metadata', () => {
+  const expected={
+    'sound1.mp3':['be3566204c73c56c798953829010f28106a2bde51926423c1c055644d3237a16',41],
+    'sound2.mp3':['eb7bcf7ad7846fb0abe0f48d7bb3b7ea619fa2ab833082b3c6cb60928940c31d',45],
+    'sound3.mp3':['351797f3ffca9c11486b09b1ee58914acf074e90907b6d8faab335091941a503',129],
+  };
+  for(const [file,[hash,frames]] of Object.entries(expected)) {
+    const bytes=readFileSync(new URL(`./dist/audio/${file}`,import.meta.url));
+    assert.equal(createHash('sha256').update(bytes).digest('hex'),hash);
+    assert.equal(bytes.includes(Buffer.from('creatorAtom')),false);
+    assert.equal(bytes.includes(Buffer.from('uncProjectPath')),false);
+    let position=0;
+    for(let frame=0;frame<frames;frame++) {
+      const header=bytes.readUInt32BE(position);
+      assert.equal(header>>>21,0x7ff,'complete MPEG frame');
+      assert.equal((header>>>19)&3,3,'MPEG-1');
+      assert.equal((header>>>17)&3,1,'Layer III');
+      assert.equal((header>>>10)&3,0,'44.1 kHz');
+      assert.notEqual((header>>>6)&3,3,'two channels');
+      assert.equal((header>>>12)&15,11,'192 kbit/s');
+      position+=Math.floor(144*192000/44100)+((header>>>9)&1);
     }
-    assert.ok(format && data);
-    assert.equal(format.readUInt16LE(0), 1, 'uncompressed PCM');
-    assert.equal(format.readUInt16LE(2), 2, 'stereo');
-    assert.equal(format.readUInt32LE(4), 48000);
-    assert.equal(format.readUInt16LE(14), 16);
-    assert.equal(data.length / (48000 * 2 * 2), expectedDuration);
-    let peak = 0;
-    for (let index = 0; index < data.length; index += 2) peak = Math.max(peak, Math.abs(data.readInt16LE(index)) / 32768);
-    assert.ok(peak > 0.01 && peak < 1, 'audible recording has unclipped headroom');
+    assert.equal(bytes.length,position,'all bytes belong to complete original MPEG audio frames');
+    assert.equal(frames*1152/44100,clipDurations[file]);
   }
+});
+
+test('the full firing tail survives impacts and reporting signals, then OFF stops it immediately', async()=>{
+  const {audio,context}=await ready({recordings:true});
+  assert.equal(audio.play('fire'),true);
+  const firing=context.sources.at(-1),end=firing.stops[0];
+  assert.ok(end-context.currentTime>3.3);
+  context.currentTime+=1;
+  audio.play('salvoImpact',{count:81});
+  assert.equal(firing.disconnected,false,'the global cap accommodates firing plus six impact layers');
+  context.currentTime+=1;
+  for(const source of context.sources.filter(source=>source!==firing))source.finish();
+  audio.play('radio');audio.play('bugle');
+  assert.equal(firing.stops.length,1,'reporting must not schedule an early stop');
+  assert.equal(firing.disconnected,false);
+  assert.equal(firing.stops[0],end);
+  audio.setEnabled(false);
+  assert.equal(firing.stops.at(-1),context.currentTime);
+  assert.equal(firing.disconnected,true);
+  audio.dispose();
+});
+
+test('an unavailable firing recording stays silent instead of synthesizing a substitute',async()=>{
+  const context=new AudioContext(),normal=fixtureFetch();
+  const audio=createArtilleryAudio({contextFactory:()=>context,fetcher:(url,options)=>
+    String(url).endsWith('sound3.mp3')?Promise.resolve({ok:false}):normal(url,options)});
+  audio.setEnabled(true);
+  assert.equal(await audio.prepare(),false);
+  assert.equal(audio.play('fire'),false);
+  assert.equal(context.sources.length,0);
+  assert.equal(audio.play('shellLoad'),true);
+  assert.equal(audio.play('impact'),true);
+  audio.dispose();
 });

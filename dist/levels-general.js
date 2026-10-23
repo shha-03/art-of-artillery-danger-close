@@ -226,10 +226,10 @@ export const GENERAL_LEVELS = [
     code: 'while (x < n) {\n  x = x + 1;\n  y = y + 1;\n  if (y == m + 1) {\n    y = 0;\n  }\n}',
     allies: [{ x: 2, y: 1 }, { x: 3, y: 0 }, { x: 4, y: 0 }],
     referenceInvariant: 'x >= 0 && x <= n && y >= 0 && y < m + 1',
-    solution: 'x >= 0 && x <= n && y == x % (m + 1)',
+    solution: 'x <= n && y == x % (m + 1)',
     goalSolution: 'x == n && y == n % (m + 1)',
-    hints: ["y의 범위만으로는 현재 반복 횟수와의 연결이 없다. x와 y 사이의 합동 관계를 찾아라.","0 ≤ x ≤ n과 y == x % (m + 1)을 결합하라. y의 범위는 나머지 관계에서 따라오므로 따로 적지 않는다."],
-    en: { name: 'Cyclic Counter', concept: 'Iteration count and modular congruence', brief: 'Count n iterations in x while cycling y from 0 through m. Compute the remainder through the loop without reducing the external input first.', hints: ["Bounds on y do not connect it to the iteration count. Find a congruence relating x and y.","Combine 0 ≤ x ≤ n with y == x % (m + 1). The bounds on y follow from the remainder relation."] },
+    hints: ["y의 범위만으로는 현재 반복 횟수와의 연결이 없다. x와 y 사이의 합동 관계를 찾아라.","x ≤ n과 y == x % (m + 1)을 결합하라. Dafny의 나머지는 음수 x에서도 0부터 m까지이므로 x ≥ 0과 y의 범위는 따로 적지 않는다."],
+    en: { name: 'Cyclic Counter', concept: 'Iteration count and modular congruence', brief: 'Count n iterations in x while cycling y from 0 through m. Compute the remainder through the loop without reducing the external input first.', hints: ["Bounds on y do not connect it to the iteration count. Find a congruence relating x and y.","Combine x ≤ n with y == x % (m + 1). Dafny modulus stays between 0 and m even for negative x, so neither x ≥ 0 nor separate y bounds are needed."] },
   }),
   mission({
     id: 'g12', chapter: 3, name: '균형 정수평균', subtitle: 'BALANCED INTEGER MEAN', concept: '합 보존과 종료 구간',

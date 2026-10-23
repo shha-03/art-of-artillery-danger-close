@@ -60,12 +60,16 @@ test('verification always covers the full raw-input window while the battlefield
   }
 });
 
-test('the spatial chapter preserves every existing algorithm, solution, deployment, risk, and branch value',()=>{
+test('the campaign retains reviewed algorithms, solutions, deployments, risk, and branch values',()=>{
   const original=LEVELS.slice(0,20).map(({id,chapter,initializationCode,code,guardSource,solution,goalSolution,starter,referenceInvariant,battleInputs,enemies,allies})=>
     ({id,chapter,initializationCode,code,guardSource,solution,goalSolution,starter,referenceInvariant,battleInputs,enemies,allies}));
-  // Captured before adding the spatial chapter, including full risk evidence.
+  // Original 20-program snapshot, including full risk evidence. The only
+  // intentional change since the spatial chapter is g11's redundant x >= 0
+  // removal after aligning % with Dafny Euclidean modulus. Restoring that one
+  // conjunct reproduces the previous snapshot; programs, placements and scores
+  // are unchanged by this update.
   assert.equal(createHash('sha256').update(JSON.stringify(original)).digest('hex'),
-    'b93fad86259ee0503200972b140d5e2414e6509cfb9188f9a1656142f0278823');
+    '773f936aa1af85550a01d1bd11a64235bbf22f796129258b85e295a2a9099951');
   const pairing=LEVELS.find(level=>level.id==='s02');
   assert.equal(pairing.enemies.filter(unit=>unit.x===0&&unit.y===0).length,2);
   assert.deepEqual(pairing.enemies.filter(unit=>unit.x===0&&unit.y===0).map(unit=>unit.z),[1,2]);

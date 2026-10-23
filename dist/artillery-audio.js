@@ -1,13 +1,17 @@
-// Mechanical cues use local recordings; the remaining effects are synthesized.
+// Mechanical and firing cues use the user's local recordings; impacts and
+// signals are synthesized. See audio/SOURCE.md for the split and constant gains.
 // The optional dependencies make scheduling/lifecycle tests independent of a browser.
 const MAX_SOURCES = 48;
 const MAX_SALVO_BLASTS = 6;
 const OUTPUT_LEVEL = 0.62;
 const FLOOR = 0.0001;
+const RECORDING_FILES = Object.fromEntries(['sound1.mp3','sound2.mp3','sound3.mp3']
+  .map(file => [file, new URL(`./audio/${file}`, import.meta.url)]));
 const RECORDINGS = {
-  breechOpen: { url: new URL('./audio/breech-open.wav', import.meta.url), duration: 0.45 },
-  shellLoad: { url: new URL('./audio/shell-load.wav', import.meta.url), duration: 0.58 },
-  breechClose: { url: new URL('./audio/breech-close.wav', import.meta.url), duration: 0.40 },
+  breechOpen: { file: 'sound1.mp3', offset: 0, duration: 0.68, gain: 5.780593767732224 },
+  shellLoad: { file: 'sound2.mp3', offset: 0, gain: 6.830070598341799 },
+  breechClose: { file: 'sound1.mp3', offset: 0.68, gain: 5.780593767732224 },
+  fire: { file: 'sound3.mp3', offset: 0, gain: 3.7817304978327306 },
 };
 
 export function createArtilleryAudio({ contextFactory, random = Math.random,
@@ -51,7 +55,7 @@ export function createArtilleryAudio({ contextFactory, random = Math.random,
     if (disposed || typeof fetcher !== 'function') return Promise.resolve(false);
     const controller = new AbortController();
     requests.add(controller);
-    const request = Promise.resolve().then(() => fetcher(RECORDINGS[cue].url, { signal: controller.signal }))
+    const request = Promise.resolve().then(() => fetcher(RECORDING_FILES[cue], { signal: controller.signal }))
       .then(response => response?.ok ? response.arrayBuffer() : false);
     const pending = bounded(request).then(bytes => {
       if (!bytes || disposed) { controller.abort(); return false; }
@@ -69,7 +73,7 @@ export function createArtilleryAudio({ contextFactory, random = Math.random,
   function preload({ signal, timeoutMs = loadDeadline } = {}) {
     if (disposed || signal?.aborted) return Promise.resolve(false);
     // Boot may fetch bytes without creating or resuming an AudioContext.
-    return bounded(Promise.all(Object.keys(RECORDINGS).map(fetchRecording))
+    return bounded(Promise.all(Object.keys(RECORDING_FILES).map(fetchRecording))
       .then(results => results.every(Boolean)), timeoutMs, signal);
   }
 
@@ -103,7 +107,7 @@ export function createArtilleryAudio({ contextFactory, random = Math.random,
     // unlock() must run before the first await to retain the click gesture.
     const unlocked = unlock();
     const target = context, version = contextVersion;
-    const ready = Promise.all([unlocked, ...Object.keys(RECORDINGS).map(cue =>
+    const ready = Promise.all([unlocked, ...Object.keys(RECORDING_FILES).map(cue =>
       target ? decodeRecording(cue, target, version) : Promise.resolve(false))])
       .then(results => results.every(Boolean) && !disposed && enabled
         && context === target && contextVersion === version);
@@ -290,22 +294,25 @@ export function createArtilleryAudio({ contextFactory, random = Math.random,
   });
   const tone = (at, duration, gain, frequency, options = {}) => sourceVoice({ at, duration, gain, frequency, ...options });
   function recordedVoice(cue, at) {
-    const buffer = recordings.get(cue);
+    const recording = RECORDINGS[cue], buffer = recordings.get(recording.file);
     if (!buffer) return false;
+    const duration = Math.min(buffer.duration - recording.offset, recording.duration ?? Infinity);
+    if (!(duration > 0)) return false;
     while (voices.size >= MAX_SOURCES) release(voices.values().next().value, true);
     const source = context.createBufferSource();
     const voice = { source, nodes: [source] };
     try {
-      const duration = Math.min(buffer.duration, RECORDINGS[cue].duration);
       source.buffer = buffer;
       source.loop = false;
       source.playbackRate.setValueAtTime(1, at);
-      // Preserve the recording: no pitch shift, filter, envelope or reverb.
-      // Common output gain/compression is shared with the other effects.
-      source.connect(compressor);
+      // Only a constant per-file level correction precedes the common master.
+      // Loading and firing retain the entire decoded recording, including tails.
+      const level = context.createGain(); voice.nodes.push(level);
+      level.gain.setValueAtTime(recording.gain, at);
+      source.connect(level); level.connect(compressor);
       voices.add(voice);
       source.onended = () => release(voice);
-      source.start(at, 0, duration);
+      source.start(at, recording.offset, duration);
       source.stop(at + duration);
       return true;
     } catch (error) {
@@ -315,23 +322,12 @@ export function createArtilleryAudio({ contextFactory, random = Math.random,
   }
 
   function loadClose(at) {
-    if (!recordings.has('shellLoad') || !recordings.has('breechClose')) return false;
-    const loadingDuration = Math.min(recordings.get('shellLoad').duration, RECORDINGS.shellLoad.duration);
+    const loading = recordings.get(RECORDINGS.shellLoad.file), closing = recordings.get(RECORDINGS.breechClose.file);
+    if (!loading || !closing || closing.duration <= RECORDINGS.breechClose.offset) return false;
+    const loadingDuration = loading.duration;
     recordedVoice('shellLoad', at);
     recordedVoice('breechClose', at + loadingDuration + 0.02);
     return true;
-  }
-
-  function fire(at) {
-    // A pressure impulse and broadband combustion, without a pitched bass dive.
-    noise(at, 0.012, 0.34, 5500, { filter: { type: 'highpass', frequency: 1800 }, wet: 0.12 });
-    noise(at + 0.001, 0.24, 1.04, 85, { noise: 'brown', filter: { type: 'bandpass', frequency: 85, q: 0.85 }, attack: 0.001, wet: 0.08 });
-    noise(at + 0.002, 0.15, 0.63, 165, { filter: { type: 'bandpass', frequency: 165, q: 0.7 }, attack: 0.001, wet: 0.12 });
-    noise(at + 0.004, 0.31, 0.72, 1950, { filter: { type: 'lowpass', frequency: 1950, endFrequency: 420 }, wet: 0.26 });
-    noise(at + 0.02, 0.95, 0.62, 210, { noise: 'brown', attack: 0.015, wet: 0.42 });
-    noise(at + 0.065, 0.60, 0.18, 640, { filter: { type: 'bandpass', frequency: 640, q: 0.5 }, pan: -0.15, wet: 0.3 });
-    noise(at + 0.16, 0.18, 0.10, 950, { pan: -0.55, wet: 0.35 });
-    noise(at + 0.26, 0.26, 0.07, 720, { pan: 0.5, wet: 0.4 });
   }
 
   function impact(at, pan = 0, scale = 1) {
@@ -382,7 +378,7 @@ export function createArtilleryAudio({ contextFactory, random = Math.random,
 
   function play(cue, options = {}) {
     if (!enabled || disposed || !context || context.state !== 'running') return false;
-    const effects = { fire, impact, salvoImpact, radio, bugle, failure };
+    const effects = { impact, salvoImpact, radio, bugle, failure };
     const recorded = Object.hasOwn(RECORDINGS, cue);
     if (!recorded && cue !== 'loadClose' && !Object.hasOwn(effects, cue)) return false;
     try {
@@ -390,8 +386,8 @@ export function createArtilleryAudio({ contextFactory, random = Math.random,
       if (recorded || cue === 'loadClose') {
         // A missing or still-loading clip is silent. Never synthesize a fallback
         // or replay a late asynchronous result after its visual phase passed.
-        if (recorded && !recordings.has(cue)) return false;
-        if (cue === 'loadClose' && (!recordings.has('shellLoad') || !recordings.has('breechClose'))) return false;
+        if (recorded && !recordings.has(RECORDINGS[cue].file)) return false;
+        if (cue === 'loadClose' && (!recordings.has(RECORDINGS.shellLoad.file) || !recordings.has(RECORDINGS.breechClose.file))) return false;
         output.gain.cancelScheduledValues(context.currentTime);
         output.gain.setValueAtTime(OUTPUT_LEVEL, context.currentTime);
         return recorded ? recordedVoice(cue, at) : loadClose(at);

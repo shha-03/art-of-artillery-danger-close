@@ -144,16 +144,16 @@ export const SOLUTION_EXPLANATIONS = {
   },
   g11: {
     ko: {
-      initial: '초기 x = y = 0이며 n ≥ 0이다. 두 x 경계와 나머지 관계가 성립한다.',
-      preservation: '0 ≤ x < n에서 증가한 x는 여전히 0 ≤ x ≤ n이다. y도 1 늘리고 m + 1에서 0으로 되돌리므로 새 y는 새 x의 나머지이다.',
+      initial: '초기 x = y = 0이며 n ≥ 0이다. 상한 x ≤ n과 나머지 관계가 성립한다.',
+      preservation: '정수 x < n에서 증가한 x는 여전히 x ≤ n이다. Dafny의 나머지 관계는 x의 부호와 무관하게 0 ≤ y ≤ m을 준다. y < m이면 1 증가시키고 y = m이면 0으로 되돌려 새 x의 나머지를 유지한다.',
       postcondition: '종료 조건 x ≥ n과 상한 x ≤ n으로 x = n이다. 나머지 관계에서 y = n % (m + 1)을 얻는다.',
-      note: 'y의 두 범위 조건은 x ≥ 0과 나머지식에서 따라온다. x ≥ 0은 남겨야 한다. 이 게임의 %는 JavaScript처럼 음수 피제수에 음수 나머지를 허용하기 때문이다.',
+      note: 'Dafny의 Euclidean 나머지는 항상 비음수이므로 y의 범위는 나머지식에서 따라온다. 음수의 가상 x에서도 순환 관계가 보존되어 x ≥ 0은 불필요하다. 실제 실행은 x = 0에서 시작해 n까지 증가한다.',
     },
     en: {
-      initial: 'Initially x = y = 0 and n ≥ 0, satisfying both x bounds and the remainder relation.',
-      preservation: 'Incrementing 0 ≤ x < n preserves 0 ≤ x ≤ n. Incrementing y and wrapping at m + 1 gives the remainder of the new x.',
+      initial: 'Initially x = y = 0 and n ≥ 0, satisfying x ≤ n and the modulus relation.',
+      preservation: 'For integer x < n, incrementing x preserves x ≤ n. Dafny modulus gives 0 ≤ y ≤ m regardless of the sign of x. Increment y when y < m, or wrap to zero when y = m; both branches yield the modulus of the new x.',
       postcondition: 'The exit condition x ≥ n and the upper bound x ≤ n give x = n, hence y = n % (m + 1).',
-      note: 'Both bounds on y follow from x ≥ 0 and the remainder relation. Keep x ≥ 0: the game uses JavaScript remainder, which can be negative for negative dividends.',
+      note: 'Dafny Euclidean modulus is nonnegative, so the modulus relation supplies the bounds on y. The cyclic relation is preserved even at hypothetical negative x, making x ≥ 0 unnecessary. Actual execution starts at x = 0 and increments to n.',
     },
   },
   g12: {

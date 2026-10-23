@@ -49,7 +49,10 @@ test('loading finishes before breech closure, and closure finishes before the ex
   const exit = phases.find(event => event.type === 'checking' && event.stage === 'goal');
   assert.equal(closing.at - loading.at, FIRING_TIMING.load);
   assert.equal(exit.at - closing.at, FIRING_TIMING.close);
-  assert.ok(FIRING_TIMING.load >= 620, 'leave space after the loading sound before closure');
+  assert.ok(FIRING_TIMING.breech >= 680+8, 'the opening excerpt finishes before the next check');
+  assert.ok(FIRING_TIMING.load >= 51840/44100*1000+8, 'the entire loading recording finishes before closure');
+  assert.ok(FIRING_TIMING.close >= (47232/44100-.68)*1000+8, 'the closing excerpt finishes before the exit check');
+  assert.ok(FIRING_TIMING.muzzle >= 340, 'flight does not precede the recorded main firing transient');
 });
 
 test('cancelling during loading prevents closure, exit verification and firing', async () => {

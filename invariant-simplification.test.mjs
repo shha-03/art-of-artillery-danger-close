@@ -124,6 +124,18 @@ test('g08: the negative branch reaches zero without an extra sign conjunct', () 
   assert.ok(Math.abs(before.x) > Math.abs(initial.x));
 });
 
+test('g11: Euclidean modulus preserves negative virtual counters without x >= 0', () => {
+  const wrapped = virtualStep('g11', { a: 2, b: 2 }, { x: -1, y: 2 }, { x: 0, y: 0 });
+  const incremented = virtualStep('g11', { a: 2, b: 2 }, { x: -3, y: 0 }, { x: -2, y: 1 });
+  const unitDivisor = virtualStep('g11', { a: 0, b: 0 }, { x: -1, y: 0 }, { x: 0, y: 0 });
+  for (const { initial, before } of [wrapped, incremented, unitDivisor]) {
+    assert.equal(initial.x, 0);
+    assert.ok(before.x < initial.x, 'negative states are admitted for induction, not initial execution');
+  }
+  assert.equal(evaluate(parseExpression(unitDivisor.level.guardSource), unitDivisor.after), false);
+  assert.equal(evaluate(parseExpression(unitDivisor.level.goalSolution), unitDivisor.after), true);
+});
+
 test('g14: a negative virtual prefix preserves the polynomial identity', () => {
   const { initial, before } = virtualStep('g14', { a: 2, b: 2 }, { x: -1, y: -1 }, { x: 0, y: 0 });
   // Actual x starts at zero and only increases: this checks an unreachable

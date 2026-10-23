@@ -1,7 +1,7 @@
 // Presentation timing is independent of the verifier. Each iterator advance
 // performs exactly one proof stage; battle state is committed only after radio.
 export const FIRING_TIMING = Object.freeze({
-  check: 280, breech: 480, load: 620, close: 440, muzzle: 180,
+  check: 280, breech: 720, load: 1220, close: 440, muzzle: 400,
   flightDelay: 220, flight: 640, impact: 700, radio: 120, report: 280,
 });
 export const VERIFICATION_STAGES = Object.freeze(['initial', 'preservation', 'goal']);
