@@ -580,14 +580,6 @@ html[lang="en"] .fire-button small { font-size: 9px; line-height: 1.5; white-spa
 .result-breakdown { margin: 14px 0 0; color: var(--sage); font-family: var(--mono); font-size: 12px; line-height: 1.7; }
 
 /* Firing sequence. Decorative effects never intercept the map or its controls. */
-.sequence-status { position: relative; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-height: 54px; margin: 13px 0 0; padding: 11px 13px 11px 16px; border: 1px solid var(--line); border-left: 3px solid #647455; background: #1c231a; color: var(--muted); }
-.sequence-status-title, .sequence-status > strong { color: var(--cream); font-size: 12px; font-weight: 650; line-height: 1.5; }
-.sequence-status-detail, .sequence-status > small { flex-basis: 100%; color: #9ba58d; font-size: 10px; line-height: 1.65; overflow-wrap: anywhere; }
-.sequence-status[data-phase="initial"], .sequence-status[data-phase="preservation"], .sequence-status[data-phase="goal"] { border-left-color: var(--orange); }
-.sequence-status[data-phase="breech-open"], .sequence-status[data-phase="loading"], .sequence-status[data-phase="breech-close"] { border-left-color: #d1b977; }
-.sequence-status[data-phase="fire"], .sequence-status[data-phase="flight"], .sequence-status[data-phase="impact"] { border-color: #6b5137; border-left-color: var(--orange-bright); background: #29271d; }
-.sequence-status[data-phase="radio"], .sequence-status[data-phase="complete"] { border-left-color: var(--sage); }
-.sequence-status[data-phase="failed"] { border-left-color: var(--danger); background: #2c241c; }
 .check-item.running { border-color: #b88a4f; background: #302c1e; box-shadow: inset 0 -2px 0 #c69850; }
 .check-item.running .check-title { color: #eed3a1; }
 .check-item.running .check-detail { color: #c9b98e; }
@@ -626,11 +618,6 @@ html[lang="en"] .fire-button small { font-size: 9px; line-height: 1.5; white-spa
 .fx-reduced-motion .fx-shockwave, .fx-reduced-motion .fx-impact-core { animation: none; transition: none; }
 .fx-reduced-motion .fx-shockwave { opacity: .75; }
 .fx-reduced-motion .fx-impact-core { opacity: .25; }
-@media (max-width: 600px) {
-  .sequence-status { min-height: 58px; padding: 10px 11px; }
-  .sequence-status-title, .sequence-status > strong { font-size: 11px; }
-  .sequence-status-detail, .sequence-status > small { font-size: 9px; }
-}
 @media (prefers-reduced-motion: reduce) {
   .check-item.running .check-icon, .fx-radio-pulse { animation: none !important; transition: none !important; }
   .fx-dust, .fx-sparks { display: none !important; }
@@ -680,4 +667,96 @@ html[lang="en"] .fire-button small { font-size: 9px; line-height: 1.5; white-spa
   .roster-unit > small { font-size: 9px; }
   .score-detail { margin-bottom: 16px; font-size: 9px; }
   .result-breakdown { font-size: 11px; }
+}
+
+/* Commander's view: keep the battlefield and firing controls in one viewport. */
+.topbar { height: 46px; min-height: 46px; padding: 0 24px; }
+.topbar-right { gap: 18px; }
+.brand-mark > svg { width: 24px; height: 24px; }
+.app-shell { width: min(1440px, calc(100% - 40px)); max-width: none; padding: 10px 0 18px; }
+.intro { margin: 0 0 8px; padding: 0; }
+.intro > div { display: flex; align-items: baseline; gap: 18px; }
+.intro-title { font-size: 26px; line-height: 1.15; letter-spacing: -.04em; }
+.intro-copy { margin: 0; font-size: 11px; line-height: 1.5; }
+.campaign-nav { margin-bottom: 10px; border-block: 1px solid var(--line-soft); }
+.campaign-nav > summary, .program-details > summary, .field-details > summary { cursor: pointer; color: var(--cream); font-size: 11px; padding: 9px 12px; line-height: 1.5; }
+.campaign-nav > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; padding-inline: 0; }
+.campaign-nav > summary::-webkit-details-marker { display: none; }
+.campaign-nav > summary > :last-child { margin-left: auto; color: var(--muted); }
+.campaign-nav > summary::after { content: '+'; color: var(--orange); font: 16px var(--mono); }
+.campaign-nav[open] > summary::after { content: '−'; }
+.campaign-nav .campaign-route { grid-template-columns: 1fr 1fr; padding: 4px 0; }
+.campaign-nav .campaign-route > button { grid-row: auto; }
+summary:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; }
+.program-details, .field-details { border-block: 1px solid var(--line-soft); }
+.program-details { margin-top: 8px; }
+.program-details > summary { padding-inline: 0; color: var(--sage); }
+.program-details > summary::marker, .field-details > summary::marker { color: var(--orange); }
+.program-content { padding-bottom: 14px; }
+.program-content .mission-concept { margin-top: 8px; }
+.program-content .mission-brief { padding: 8px 0 12px; }
+.program-content .section-label { margin-top: 12px; }
+.program-content .input-help { color: var(--muted); }
+.field-details .log-panel { margin: 0; padding: 12px; }
+.workspace { grid-template-columns: minmax(0, 1.1fr) minmax(340px, 1fr); gap: 22px; }
+.panel-heading, .command-panel > .panel-heading { min-height: 43px; padding: 7px 12px; }
+.command-panel > .panel-heading { padding-inline: 0; }
+.panel-heading > div:first-child { display: flex; align-items: baseline; gap: 10px; }
+.panel-kicker { margin: 0; font-size: 8px; }
+.panel-title { font-size: 13px; }
+.icon-button { min-height: 30px; padding: 5px 8px; }
+.battlefield { padding: 8px 12px 7px; }
+.coordinate-grid { width: min(100%, max(280px, min(520px, calc(100dvh - 300px)))); margin-inline: auto; }
+.map-caption { margin: 0 0 5px 0; font-size: 9px; }
+.map-status { margin: 4px 0 0; min-height: 25px; padding-top: 4px; }
+.map-legend { gap: 6px 16px; padding: 7px 12px; }
+.legend-item { font-size: 10px; gap: 5px; }
+.legend-symbol { width: 17px; height: 17px; flex-basis: 17px; }
+.stats-grid { padding: 10px 0 7px; }
+.stat-value { font-size: 22px; }
+.stat-label { margin-bottom: 2px; }
+.score-detail { margin: 0 0 6px; font-size: 9px; }
+.command-panel > .editor-header { margin: 8px 0 5px; min-height: 23px; }
+.command-panel > textarea.goal-input[readonly] { height: 46px; min-height: 46px; padding: 6px 10px; line-height: 1.4; font-size: 12px; }
+.command-panel > #invariant-input { height: 76px; min-height: 76px; padding: 9px 11px; font-size: 14px; }
+.command-panel .syntax-palette { margin-top: 6px; }
+.command-panel .syntax-palette button { min-height: 26px; padding: 2px 8px; }
+.command-panel > #invariant-help { margin-top: 4px; font-size: 9px; }
+.verification-strip { margin: 8px 0; }
+.check-item { min-height: 43px; padding: 6px 6px 6px 25px; }
+.check-icon { top: 8px; left: 7px; }
+.check-title { font-size: 10px; }
+.check-detail { font-size: 9px; }
+.fire-button { min-height: 49px; padding: 8px 12px; }
+.command-note { margin-top: 5px; line-height: 1.5; }
+.command-panel > .feedback-panel { margin-top: 9px; padding: 7px 0; border: 0; border-top: 1px solid var(--line); background: transparent; }
+.feedback-title { margin-bottom: 3px; font-size: 11px; }
+.feedback-body { font-size: 10px; line-height: 1.6; }
+.site-footer { margin-top: 12px; padding-top: 10px; }
+@media (min-width: 761px) {
+  .map-panel { position: sticky; top: 10px; }
+}
+@media (max-width: 760px) {
+  .topbar { height: auto; min-height: 44px; padding: 5px 12px; flex-wrap: wrap; gap: 0 12px; }
+  .topbar-right { width: auto; margin-left: auto; gap: 12px; }
+  .brand-name { font-size: 9px; }
+  .brand-mark > svg { width: 20px; height: 20px; }
+  .text-button { font-size: 10px; min-height: 32px; }
+  .language-select { min-height: 30px; min-width: 75px; padding-block: 4px; }
+  .app-shell { width: calc(100% - 24px); padding-top: 8px; }
+  .intro-title { font-size: 22px; }
+  .intro-copy { display: none; }
+  .workspace { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .coordinate-grid { width: min(100%, 320px); }
+  .map-legend { justify-content: center; }
+  .command-panel { padding: 0; }
+  .panel-kicker { font-size: 8px; }
+  .field-details > summary { padding-block: 7px; }
+  .command-panel > #invariant-input { font-size: 16px; }
+  .command-panel .syntax-palette button { min-height: 32px; }
+  .fire-button { min-height: 52px; }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .panel-heading .icon-button, .command-panel .small-button { min-height: 30px; }
 }

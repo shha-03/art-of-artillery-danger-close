@@ -193,6 +193,7 @@ function renderMap() {
   $('grid').style.setProperty('--size',l.size); $('grid').innerHTML=cells.join('');
   $('map-sector').textContent=`SECTOR ${pad(levelIndex+1)} · ${pad(l.size)} × ${pad(l.size)}`;
   $('map-status').textContent = battle.finished ? t(battle.cleared?'mapCleared':'mapEnded') : candidates.length?t('mapCandidates',{count:candidates.length,point:point(candidates[0]),status:t(exitAllowsFire(lastAnalysis)?stagePassed(lastAnalysis,'goal')?'verified':'invariantVerified':'pending')}):t('noCandidates');
+  if(busy&&['fire','flight-delay','flight','impact','radio'].includes(firingPhase))$('map-status').textContent=t(`sequence.${sequenceCopyPhase()}.title`);
   $('preview-button').classList.toggle('active',preview); $('preview-button').setAttribute('aria-pressed',String(preview));
   $('trace-button').classList.toggle('active',traceVisible); $('trace-button').setAttribute('aria-pressed',String(traceVisible));
   renderUnitRoster();
@@ -238,18 +239,10 @@ function renderChecks() {
     const detail=running?t('checking'):pending?t('afterOrder'):failedError?t('incomplete'):passed?t(k==='initial'?(level().initialCondition!==undefined?'initialDomainPassed':'initialPassed'):'passed',{count:check.checkedCount}):t(warning?'unprovenFireAllowed':k==='goal'?'unproven':'dud');
     return `<div class="check-item ${state}" data-check="${k}" data-status="${state}"><span class="check-icon">${running?'◌':pending?'○':passed?'✓':warning?'!':'×'}</span><span class="check-title">${esc(t(k))}</span><span class="check-detail">${esc(detail)}</span></div>`;
   }).join('');
+  $('verification-strip').setAttribute('aria-busy',String(Boolean(currentStage)));
 }
 function sequenceCopyPhase() {
   return firingPhase==='fire'&&!stagePassed(lastAnalysis,'goal')?'fire-risk':firingPhase;
-}
-function renderSequence() {
-  const banner=$('sequence-status');
-  banner.dataset.phase=firingPhase;
-  const copyPhase=sequenceCopyPhase();
-  banner.querySelector('.sequence-status-title').textContent=t(`sequence.${copyPhase}.title`);
-  banner.querySelector('.sequence-status-detail').textContent=t(`sequence.${copyPhase}.detail`);
-  if(busy&&['fire','flight-delay','flight','impact','radio'].includes(firingPhase))$('map-status').textContent=t(`sequence.${copyPhase}.title`);
-  $('verification-strip').setAttribute('aria-busy',String(Boolean(currentStage)));
 }
 function feedback(kind,title,body,detail='') {
   $('feedback-panel').dataset.kind=kind;
@@ -295,14 +288,15 @@ function renderLogs() {
     return `<li class="log-entry"><span class="log-marker ${r.kind}"></span><div><strong>${esc(title)}</strong><p>${esc(body)}</p><code>${esc(r.expression)}</code></div><span class="log-time">#${pad(records.length-i)}</span></li>`;
   }).join(''):`<li class="empty-log">${esc(t('emptyLog'))}</li>`;
 }
-function render() {renderTabs();renderInitialInputs();renderStats();renderMap();renderChecks();renderSequence();renderLogs();renderFeedback();}
+function render() {renderTabs();renderInitialInputs();renderStats();renderMap();renderChecks();renderLogs();renderFeedback();}
 function invalidateAnalysis() {
   if(busy)return;
   sequenceStarted=false;revealedStages.clear();currentStage=null;firingPhase='idle';battleEffects.clear();
   lastAnalysis=null; witness=null; renderChecks();renderMap();renderStats();
-  feedbackState={type:'modified'};renderFeedback();renderSequence();
+  feedbackState={type:'modified'};renderFeedback();
 }
 function loadLevel(index) {
+  document.querySelector('.campaign-nav').open=false;
   sequenceAbort?.abort();sequenceAbort=null;artilleryAudio.stopAll();battleEffects.clear();
   firingPhase='idle';currentStage=null;sequenceStarted=false;revealedStages.clear();
   levelIndex=index; selectedInitialIndex=0; battle=createBattle(level()); lastAnalysis=null;records=[];selectedTargets=new Set();witness=null;impacts=[];hintCount=1;busy=false;turnToken++;
@@ -324,7 +318,8 @@ function setSelectedGoal() {
 }
 function setFiringPhase(phase) {
   firingPhase=phase;
-  renderSequence();renderFeedback();
+  if(busy&&['fire','flight-delay','flight','impact','radio'].includes(firingPhase))$('map-status').textContent=t(`sequence.${sequenceCopyPhase()}.title`);
+  renderFeedback();
 }
 function playCue(cue,options) {if(!document.hidden)artilleryAudio.play(cue,options);}
 function applyOrderResult(result,mode,expression) {

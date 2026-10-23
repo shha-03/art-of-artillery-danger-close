@@ -4,6 +4,9 @@ import { translate } from './i18n.js';
 // the end of this module escapes every mission-specific text field.
 export const UI_COPY = {
   ko: {
+    'ui.campaignDetails': '작전 선택',
+    'ui.programDetails': '프로그램·입력 확인',
+    'ui.fieldDetails': '전력·작전 기록',
     'meta.description': '불변식으로 포격을 지휘하라. Art of Artillery: Danger Close — 프로그램 검증 전술 퍼즐.',
     'brand.home': 'Art of Artillery: Danger Close 홈',
     'language.label': '표시 언어',
@@ -103,6 +106,9 @@ export const UI_COPY = {
     'result.next': '다음 작전 →'
   },
   en: {
+    'ui.campaignDetails': 'Select operation',
+    'ui.programDetails': 'Program & inputs',
+    'ui.fieldDetails': 'Forces & operation log',
     'meta.description': 'Command artillery with loop invariants. Art of Artillery: Danger Close — a tactical program-verification puzzle.',
     'brand.home': 'Art of Artillery: Danger Close home',
     'language.label': 'Display language',
