@@ -14,6 +14,8 @@ node server.mjs
 
 Open [http://127.0.0.1:4173](http://127.0.0.1:4173) in a modern browser. The committed files include the Z3 solver, so local play needs no dependency installation or build step. Use the server rather than opening `index.html` directly. Stop the server with `Ctrl+C`.
 
+The page may reload once during startup. Your first firing order also loads the solver, so verification can take longer than later orders. If the browser cannot start Z3, the game reports an incomplete check and spends no order; try opening the game in a standalone browser.
+
 ## Test
 
 Install the pinned test dependencies with npm, then run the complete suite from the project directory:
@@ -24,6 +26,12 @@ npm test
 ```
 
 Tests use Node.js 20 or later and include real Z3 verification of all 24 example solutions.
+
+To run only the 24-operation proof checks after installing dependencies:
+
+```sh
+node --test smt-campaign.test.mjs
+```
 
 ## How to play
 
@@ -64,6 +72,8 @@ Final score = base score × verification multiplier
 ```
 
 The multiplier is **2** when the shot that eliminates the last enemy passes all checks, including the fixed specification. Otherwise it is **1**. The multiplier applies to the entire base score. Completed scores cannot be changed by a later recheck; restart to try again. Best scores are saved for completed operations.
+
+Best scores are stored in this browser. Records from the earlier bounded checker are retained separately from scores earned with Z3.
 
 Single shots limit each order's damage; salvos offer a higher score by conserving orders but expose every candidate to fire. A more precise invariant helps exclude friendly positions.
 

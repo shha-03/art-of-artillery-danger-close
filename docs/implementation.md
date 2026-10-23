@@ -86,6 +86,8 @@ For a candidate invariant `I`, guard `G`, transition `T`, and postcondition `Q`,
 
 The asynchronous `orderStagesSmt` generator is the live interactive path. It advances through initialization, preservation, and the exit stage, yielding copied cumulative reports. Failed initialization or preservation stops before later obligations. The exit stage checks both the supplied goal and immutable `goalSolution`, so changing an engine argument cannot replace the operation's fixed specification. `valid` means initialization and preservation passed; `objectiveVerified` additionally requires both exit checks to pass.
 
+For a successful order in the current campaign, three visible stages contain four logical checks: initiation, preservation, the supplied goal, and the fixed specification. Each has its own definedness query, making eight solver queries in total. The read-only UI supplies the same expression for the two exit checks, but the engine still checks them independently. A failed earlier stage or an inconclusive query ends the sequence before the remaining queries run.
+
 Before every logical query, a separate definedness query checks for division or remainder by zero. The invariant must be defined for the relevant parameter contexts and arbitrary states; guard evaluation is required where the invariant holds, body evaluation where both invariant and guard hold, and postcondition evaluation at invariant-admitted exits. Boolean `&&` and `||` respect short-circuiting, so `y != 0 && x / y > 0` does not evaluate its division at `y == 0`. A definedness counterexample is an error and costs no order. This separate check prevents a logical counterexample from hiding an undefined expression elsewhere.
 
 Counterexamples retain coordinates and `a, b, n, m`; preservation reports also include successor coordinates. All model integers are serialized as exact signed decimal strings, including values outside JavaScript's safe-number range. Only representable, visible coordinates can be highlighted on the map; the text report retains the full model. Errors use stable codes and parameters for English/Korean reporting.
@@ -153,6 +155,19 @@ Cross-Origin-Embedder-Policy: require-corp
 The local server sends these headers. The committed `_headers` file supplies a declaration for compatible static hosts. On a host that does not apply them, `bootstrap.js` can install the same-origin `isolation-worker.js` before importing gameplay. It waits up to eight seconds for control, then reloads at most once per tab session to activate isolation. It does not reload a game already in progress.
 
 The service worker adds headers only to known same-origin game assets and the recognized game document. It preserves the original request and ignores redirects, error responses, cross-origin requests, and sign-in pages. It stores no response cache. Existing unrelated service workers are left alone. If isolation or the runtime is unavailable, verification reports an inconclusive result and never switches to finite checks. Some embedded browsers may restrict isolation even when a normal browser supports it.
+
+The current public deployment was checked on October 24, 2026: direct HTTP responses did not include the isolation headers, and the service-worker path successfully enabled real Z3 verification in the browser. Merely uploading `_headers` is therefore not sufficient evidence that a host applies it. When changing hosts, test a firing order after startup as well as checking the HTTP responses.
+
+If verification cannot start, distinguish runtime setup failures from undecided proof queries:
+
+| Symptom | What to check |
+| --- | --- |
+| First order waits for solver loading | The same-origin `vendor/z3-api.js`, `vendor/z3-built.js`, and `vendor/z3-built.wasm.gz` assets must be accessible. Initialization has a 45-second deadline. |
+| `Z3_ISOLATION_REQUIRED` | Serve over HTTPS or localhost; confirm `crossOriginIsolated` is true after startup. Configure the headers or permit the application's service-worker fallback. |
+| `Z3_UNSUPPORTED` | The browser must support WebAssembly, shared memory, and `DecompressionStream`. Try a compatible standalone browser if an embedded browser restricts them. |
+| An undecided proof query or a proof-query timeout | If runtime setup succeeded, the solver could not establish the obligation. Inspect or simplify the expression; no proof, damage, or order charge is recorded. |
+
+These cases are distinct from `sat`, which supplies a counterexample to a logical obligation or an expression's definedness. No setup failure or undecided query is converted into a successful finite check.
 
 ## Orders, targets, and scoring
 
@@ -257,7 +272,7 @@ The test command in [package.json](../package.json) uses Node's built-in test ru
 
 | Test group | Coverage |
 | --- | --- |
-| `smt-program`, `smt-engine`, `z3-checker`, `smt-campaign`, `smt-firing-sequence` | Symbolic semantics, unbounded proof obligations, all 24 example solutions in real Z3, exact models, definedness, timeout/cancellation, unknown handling, and asynchronous firing behavior. |
+| `smt-program`, `smt-engine`, `z3-checker`, `smt-campaign`, `smt-order-z3`, `smt-firing-sequence` | Symbolic semantics, unbounded proof obligations, all 24 example solutions in real Z3, counterexamples beyond the old input/state bounds, exact models, definedness, timeout/cancellation, unknown handling, and asynchronous firing behavior. |
 | `engine`, `initialized-engine`, `xyz-engine` | Concrete/reference parser safety, input identity, immutable parameters, retained bounded helpers, dimensional compatibility, and targeting. |
 | `dafny-arithmetic`, `dafny-program` | Euclidean integer arithmetic and agreement between displayed programs and authored transitions. |
 | `level-semantics`, `campaign`, `invariant-simplification` | Algorithm results, enemy endpoints, example invariant checks, campaign regressions, and counterexamples to weakened solutions. |
@@ -267,6 +282,14 @@ The test command in [package.json](../package.json) uses Node's built-in test ru
 | `i18n`, `layer-view` | Translation consistency, hint gating and escaping, layer controls, and cross-layer presentation. |
 
 Several presentation tests use controlled clocks, audio objects, or DOM fixtures, so they run without a real browser or audio device. They complement browser checks of responsive layout, keyboard access, actual decoding, and visible firing sequences.
+
+After `npm ci`, run the real-solver campaign and order regressions directly with:
+
+```sh
+node --test smt-campaign.test.mjs smt-order-z3.test.mjs
+```
+
+The campaign suite requires all eight queries for every authored solution to return `unsat`: 192 queries across 24 operations. The order regressions exercise actual counterexamples beyond the retired bounds, exact integers beyond JavaScript's safe range, division-by-zero rejection, and firing without a proved exit guarantee. These tests use the live SMT modules, not the retained finite reference verifier.
 
 When adding or changing a mission:
 

@@ -17,7 +17,7 @@ Thus `n = |a|` and `m = |b|` are nonnegative. The loop never changes `a`, `b`, `
 
 Programs use the same Dafny method-body notation shown in the game. They are fragments with `a, b: int` supplied externally, not complete verified Dafny methods. Assignments execute in the order shown. Integer `/` and `%` use Dafny Euclidean division: for nonzero `d`, `v == (v / d) * d + v % d` and `0 <= v % d < |d|`. In particular, `%` is nonnegative even for negative dividends.
 
-Each **Example invariant** is the current authored solution, not a unique answer. Enter the Boolean expression alone in the game, without an `invariant` keyword or semicolon. **Ensures** is the fixed postcondition. The invariant input starts blank; the first hint offers a weaker reference formula, and the final hint reveals the example solution and proof explanation.
+Each **Example invariant** is the current authored solution, not a unique answer. Enter the Boolean expression alone in the game, without an `invariant` keyword or semicolon. **Ensures** is the fixed postcondition. The invariant input starts blank; the first hint offers a starting reference formula, and the final hint reveals the example solution and proof explanation. The reference formula need not be logically weaker than the solution: it can contain extra bounds that the final invariant does not need.
 
 The three obligations discussed below are:
 
@@ -45,6 +45,18 @@ The finite dimensions below are retained for visualization, example traces, and 
 | `s04` | `0 <= x, y <= 8` | `0 <= z <= 16` |
 
 In three-variable operations, the selected `z` layer changes the view only. Salvos cover every available battlefield layer; the proof itself covers all integer values of `z`.
+
+## Reproducing the proofs
+
+After installing the dependencies with `npm ci`, run:
+
+```sh
+node --test smt-campaign.test.mjs
+```
+
+This checks the current source solutions for all 24 operations through the same Z3 verifier used by firing orders. It requires initiation, preservation, both exit checks, and their definedness queries to return `unsat`. The algebraic explanations below describe why the obligations hold; the test checks the corresponding symbolic programs. Neither establishes termination automatically.
+
+Unbounded verification also rejects conditions that merely fit the displayed examples. In `g01`, adding `n <= 4` to its example invariant fails initiation for input `a = 5`, even though the battlefield samples fit that bound. Adding `y != 100` instead passes initiation but fails preservation: with `a = 100`, `b = 0`, `n = 100`, `m = 0`, the admitted state `(x, y) = (1, 99)` steps to `(0, 100)`. The counterexample is valid even though it lies outside the map. These cases are exercised by [smt-order-z3.test.mjs](../smt-order-z3.test.mjs).
 
 ## Campaign index
 
