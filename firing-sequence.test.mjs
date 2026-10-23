@@ -143,8 +143,8 @@ test('cancelling during flight prevents late impacts, reports and battle commits
   assert.ok(!events.some(e => e.type === 'commit' || e.phase === 'impact'));
 });
 
-test('free verification and empty candidates never play a phantom shot', async () => {
-  for (const reason of ['proved', 'no-candidates']) {
+test('finished operations and empty candidates never play a phantom shot', async () => {
+  for (const reason of ['finished', 'no-candidates']) {
     const { iterator } = fixture(null, { shots: [], reason, cost: 0 });
     const events = [];
     await runFiringSequence({ iterator, onEvent: e => events.push(e), wait: async () => {} });

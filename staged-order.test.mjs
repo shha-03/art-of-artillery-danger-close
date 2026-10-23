@@ -110,6 +110,8 @@ test('false ensures remains a warning while shots and one command charge follow 
   assert.equal(final.value.battle.enemies.length, 0);
   assert.deepEqual(final.value.battle.allies, battle.allies);
   assert.equal(final.value.battle.hit.length, 1);
+  assert.equal(final.value.battle.cleared, true);
+  assert.equal(final.value.battle.scoreMultiplier, 1);
   assert.equal(battle.hit.length, 0);
 });
 
@@ -199,7 +201,7 @@ test('initial and preservation errors yield only the reached stages and never ch
   }
 });
 
-test('fixed-specification failure warns without firing permission becoming mission-completion permission', () => {
+test('fixed-specification failure permits completion but withholds the score multiplier', () => {
   const battle = createBattle(fixture({
     initialize: ({ a, b }) => ({ x: 0, y: 0, n: Math.abs(a), m: Math.abs(b) }),
     battleInputs: [{ a: 0, b: 0 }, { a: 1, b: 0 }, { a: 2, b: 0 }],
@@ -221,8 +223,9 @@ test('fixed-specification failure warns without firing permission becoming missi
   assert.equal(final.value.cost, 1);
   assert.equal(final.value.shots.length, 1);
   assert.equal(final.value.battle.enemies.length, 0);
-  assert.equal(final.value.battle.cleared, false);
-  assert.equal(final.value.battle.finished, false);
+  assert.equal(final.value.battle.cleared, true);
+  assert.equal(final.value.battle.finished, true);
+  assert.equal(final.value.battle.scoreMultiplier, 1);
 
   const bothFalse = order(battle, invariant, 'false', 'salvo');
   assert.equal(bothFalse.reason, 'fired');

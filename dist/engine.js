@@ -502,6 +502,7 @@ export function projectPredicate(source, level) {
 export function analyze(source, goalSource, level) {
   const result = {
     valid: false,
+    objectiveVerified: false,
     initial: { pass: null },
     preservation: { pass: null },
     goal: { pass: null },
@@ -520,7 +521,6 @@ export function analyze(source, goalSource, level) {
     const specification = initialized ? predicate(level.goalSolution, 'goal') : null;
     if (initialized) {
       result.specification = { pass: null };
-      result.objectiveVerified = false;
       result.contextCount = initialStates.length;
       result.inputWindow = { ...INPUT_DOMAIN };
       result.stateWindow = { ...DOMAIN };
@@ -575,9 +575,10 @@ export function analyze(source, goalSource, level) {
     }
     result.candidates = [...projected.values()].sort((a, b) => a.x - b.x || a.y - b.y);
     result.valid = result.initial.pass && result.preservation.pass;
-    if (initialized) result.objectiveVerified = result.valid && result.goal.pass && result.specification.pass;
+    result.objectiveVerified = result.valid && result.goal.pass && (!initialized || result.specification.pass);
   } catch (error) {
     result.valid = false;
+    result.objectiveVerified = false;
     // An interrupted enumeration is not a completed proof. Invalidate every
     // check so consumers cannot mistake optimistic/partial flags for success.
     result.initial = { pass: null };
@@ -585,7 +586,6 @@ export function analyze(source, goalSource, level) {
     result.goal = { pass: null };
     if (isInitializedLevel(level)) {
       result.specification = { pass: null };
-      result.objectiveVerified = false;
     }
     Object.assign(result, errorDetails(error));
   }
@@ -607,12 +607,13 @@ function copyUnits(units, size, occupied) {
 }
 
 function updateBattleStatus(battle) {
-  const initialized = isInitializedLevel(battle.level);
-  battle.cleared = battle.enemies.length === 0 && (!initialized || battle.objectiveVerified === true);
-  // An emptied initialized battlefield remains available for a free final
-  // proof, even if the final salvo consumed the last command.
-  battle.finished = battle.cleared || (battle.remaining === 0 && (!initialized || battle.enemies.length > 0));
-  battle.score = battle.enemyPoints - battle.friendlyPoints + battle.remaining;
+  battle.cleared = battle.enemies.length === 0;
+  battle.finished = battle.cleared || battle.remaining === 0;
+  battle.baseScore = battle.enemyPoints - battle.friendlyPoints + battle.remaining;
+  // Recompute from the base, never multiply a previously reported score. The
+  // last order's proof can earn a completion bonus, but cannot delay clearing.
+  battle.scoreMultiplier = battle.cleared && battle.objectiveVerified === true ? 2 : 1;
+  battle.score = battle.baseScore * battle.scoreMultiplier;
   return battle;
 }
 
@@ -650,7 +651,7 @@ export function createBattle(level) {
     friendlyKills: 0,
     enemyPoints: 0,
     friendlyPoints: 0,
-    ...(isInitializedLevel(level) ? { objectiveVerified: false } : {}),
+    objectiveVerified: false,
   });
 }
 
@@ -676,12 +677,7 @@ function resolveOrder(battle, analysis, mode) {
     allies: battle.allies.map(unitCopy),
     hit: battle.hit.map((hit) => ({ ...hit })),
   };
-  if (isInitializedLevel(battle.level)) {
-    next.objectiveVerified = analysis.objectiveVerified;
-    if (next.enemies.length === 0) {
-      return outcome({ battle: updateBattleStatus(next), analysis, reason: next.objectiveVerified ? 'proved' : 'proof-required' });
-    }
-  }
+  next.objectiveVerified = analysis.objectiveVerified === true;
   if (!analysis.valid) {
     next.remaining--;
     return outcome({ battle: updateBattleStatus(next), analysis, dud: true, cost: 1, reason: 'invalid-invariant' });
@@ -722,8 +718,9 @@ function resolveOrder(battle, analysis, mode) {
  * Initialization and preservation gate firing; false ensures/specification
  * results are warnings. Their full exit regions are still checked so a false
  * witness cannot conceal a later arithmetic error or truncate target selection.
- * Duds and successful orders cost one command. Expression errors and a final
- * proof on an already emptied initialized board remain free.
+ * Duds and successful orders cost one command; expression errors remain free.
+ * Enemy elimination finishes immediately. A verified final shot doubles the
+ * completed score; later orders cannot revise or multiply it again.
  */
 export function* orderStages(battle, invariantSource, goalSource, mode = 'single') {
   if (mode !== 'single' && mode !== 'salvo') {
@@ -735,10 +732,11 @@ export function* orderStages(battle, invariantSource, goalSource, mode = 'single
   const skipped = () => ({ pass: null, skipped: true });
   const analysis = {
     valid: false,
+    objectiveVerified: false,
     initial: skipped(), preservation: skipped(), goal: skipped(),
     candidates: [], trace: [], traces: [], exitStateCount: 0, checkedStateCount: 0,
     ...(initialized ? {
-      specification: skipped(), objectiveVerified: false,
+      specification: skipped(),
       inputWindow: { ...INPUT_DOMAIN }, stateWindow: { ...DOMAIN },
     } : {}),
   };
@@ -746,7 +744,7 @@ export function* orderStages(battle, invariantSource, goalSource, mode = 'single
   const failWithError = (error, stage, check = stage) => {
     analysis[check] = { pass: null };
     analysis.valid = analysis.initial.pass === true && analysis.preservation.pass === true;
-    if (initialized) analysis.objectiveVerified = false;
+    analysis.objectiveVerified = false;
     Object.assign(analysis, errorDetails(error), { errorStage: stage, errorCheck: check });
   };
   let initialStates, traceInputs, invariant, guard;
@@ -828,8 +826,8 @@ export function* orderStages(battle, invariantSource, goalSource, mode = 'single
           analysis.specification = { pass: false, before };
         }
       });
-      analysis.objectiveVerified = analysis.valid && analysis.goal.pass && analysis.specification.pass;
     }
+    analysis.objectiveVerified = analysis.valid && analysis.goal.pass && (!initialized || analysis.specification.pass);
   } catch (error) { failWithError(error, 'goal', activeCheck); }
   yield snapshot('goal');
   return resolveOrder(battle, analysis, mode);

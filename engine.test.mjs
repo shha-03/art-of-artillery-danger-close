@@ -206,7 +206,9 @@ test('clearing all enemies finishes, preserves initial layout and blocks subsequ
   assert.equal(result.battle.enemies.length, 0);
   assert.equal(result.battle.level.enemies.length, 1);
   assert.equal(original.enemies.length, 1);
-  assert.equal(result.battle.score, 6);
+  assert.equal(result.battle.baseScore, 6);
+  assert.equal(result.battle.scoreMultiplier, 2);
+  assert.equal(result.battle.score, 12);
   assert.equal(order(result.battle, 'true', 'true').reason, 'finished');
 });
 
@@ -254,7 +256,9 @@ test('authored starters expose their intended failure and each solution proves t
     const targetPoints = mission.enemies.reduce((sum, unit) => sum + unitPoints(unit), 0);
     assert.equal(clear.battle.enemyPoints, targetPoints, mission.id);
     assert.equal(clear.battle.friendlyPoints, 0, mission.id);
-    assert.equal(clear.battle.score, targetPoints + mission.commands - 1, mission.id);
+    assert.equal(clear.battle.baseScore, targetPoints + mission.commands - 1, mission.id);
+    assert.equal(clear.battle.scoreMultiplier, 2, mission.id);
+    assert.equal(clear.battle.score, (targetPoints + mission.commands - 1) * 2, mission.id);
   }
 });
 
@@ -267,14 +271,16 @@ test('singles and a salvo earn the same target points with one command charged p
       assert.equal(result.analysis.candidates.length, mission.enemies.length, mission.id);
       assert.equal(result.shots.length, 1, mission.id);
       assert.equal(result.shots[0].type, 'enemy', mission.id);
+      assert.equal(result.battle.scoreMultiplier, result.battle.cleared ? 2 : 1, mission.id);
       battle = result.battle;
     }
     assert.equal(battle.cleared, true, mission.id);
     const targetPoints = mission.enemies.reduce((sum, unit) => sum + unitPoints(unit), 0);
     assert.equal(battle.enemyPoints, targetPoints, mission.id);
-    assert.equal(battle.score, targetPoints + mission.commands - mission.enemies.length, mission.id);
+    assert.equal(battle.baseScore, targetPoints + mission.commands - mission.enemies.length, mission.id);
+    assert.equal(battle.score, (targetPoints + mission.commands - mission.enemies.length) * 2, mission.id);
     const salvo = order(createBattle(mission), mission.solution, mission.goalSolution, 'salvo');
-    assert.equal(salvo.battle.score - battle.score, mission.enemies.length - 1, mission.id);
+    assert.equal(salvo.battle.score - battle.score, (mission.enemies.length - 1) * 2, mission.id);
   }
 });
 

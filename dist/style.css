@@ -312,6 +312,11 @@ input[readonly] { cursor: default; }
 .result-score { color: var(--orange); font-family: var(--mono); font-size: 54px; line-height: 1.1; letter-spacing: -.07em; }
 .result-score > strong { display: block; margin-top: 24px; font-weight: 500; }
 .result-score > span { display: block; margin-top: 7px; color: #8c987b; font-size: 9px; letter-spacing: .15em; }
+.result-bonus { display: grid; gap: 5px; margin-top: 18px; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid #847349; background: #29291e; }
+.result-bonus > strong { color: #dbc293; font-size: 13px; line-height: 1.5; }
+.result-bonus > span { color: var(--muted); font-size: 11px; line-height: 1.7; }
+.result-bonus[data-multiplier="2"] { border-color: #65794f; border-left-color: #c0d79b; background: #2b3723; }
+.result-bonus[data-multiplier="2"] > strong { color: #d0e4b2; }
 .hint-list { display: grid; gap: 10px; margin-top: 18px; padding: 0; list-style: none; }
 .hint-item { padding: 14px 15px; border: 1px solid var(--line); background: #293222; color: var(--muted); font-size: 12px; }
 .hint-item strong { display: block; margin-bottom: 5px; color: var(--cream); }

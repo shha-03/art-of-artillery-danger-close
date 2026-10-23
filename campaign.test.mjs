@@ -80,14 +80,18 @@ test('the general addition solution earns target values and the correct saved-co
     assert.deepEqual(keys(fired.shots),keys([expected]));
     assert.equal(fired.shots[0].points,unitPoints(expected));
     assert.equal(fired.analysis.objectiveVerified,true);
+    assert.equal(fired.battle.scoreMultiplier,fired.battle.cleared?2:1);
     battle=fired.battle;
   }
   assert.equal(battle.cleared,true);
   assert.equal(battle.friendlyPoints,0);
-  assert.equal(battle.score,total+level.commands-level.enemies.length);
+  assert.equal(battle.baseScore,total+level.commands-level.enemies.length);
+  assert.equal(battle.score,battle.baseScore*2);
   const salvo=order(createBattle(level),level.solution,level.goalSolution,'salvo');
   assert.equal(salvo.reason,'fired');assert.equal(salvo.cost,1);
   assert.deepEqual(keys(salvo.shots),keys(level.enemies));
   assert.equal(salvo.battle.cleared,true);
-  assert.equal(salvo.battle.score,total+level.commands-1);
+  assert.equal(salvo.battle.baseScore,total+level.commands-1);
+  assert.equal(salvo.battle.scoreMultiplier,2);
+  assert.equal(salvo.battle.score,salvo.battle.baseScore*2);
 });

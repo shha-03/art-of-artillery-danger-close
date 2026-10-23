@@ -138,7 +138,7 @@ test('raw inputs and constants cannot be overwritten by initialization or transi
   assert.ok(mutation.error);
 });
 
-test('a weak invariant can fire but cannot bypass the fixed specification or free final proof', () => {
+test('a weak invariant can clear immediately but cannot earn a fixed-specification bonus or revise the result later', () => {
   const level = mission();
   const broad = 'x >= 0 && y >= 0 && x + y <= 8';
   const result = analyze(broad, 'true', level);
@@ -157,53 +157,84 @@ test('a weak invariant can fire but cannot bypass the fixed specification or fre
   assert.equal(fired.dud, false);
   assert.equal(fired.battle.enemies.length, 0);
   assert.equal(fired.battle.friendlyKills, 2);
-  assert.equal(fired.battle.cleared, false);
-  assert.equal(fired.battle.finished, false);
-  const incomplete = order(fired.battle, broad, 'true', 'single');
-  assert.equal(incomplete.reason, 'proof-required');
-  assert.equal(incomplete.cost, 0);
-  assert.equal(incomplete.battle.remaining, fired.battle.remaining);
-  const completed = order(incomplete.battle, solution, goal, 'single');
-  assert.equal(completed.reason, 'proved');
-  assert.equal(completed.cost, 0);
-  assert.equal(completed.battle.cleared, true);
-  assert.equal(completed.battle.finished, true);
-  assert.equal(completed.battle.remaining, fired.battle.remaining);
-  assert.equal(completed.battle.score, fired.battle.score);
-  assert.deepEqual(completed.shots, []);
-  assert.deepEqual(completed.battle.hit, fired.battle.hit);
+  assert.equal(fired.battle.cleared, true);
+  assert.equal(fired.battle.finished, true);
+  assert.equal(fired.battle.objectiveVerified, false);
+  assert.equal(fired.battle.baseScore, 6);
+  assert.equal(fired.battle.scoreMultiplier, 1);
+  assert.equal(fired.battle.score, 6);
+  for (const [source, ensures] of [[broad, 'true'], [solution, goal], ['x =', 'x % 0 == 0']]) {
+    const later = order(fired.battle, source, ensures, 'single');
+    assert.equal(later.reason, 'finished');
+    assert.equal(later.cost, 0);
+    assert.equal(later.analysis, null);
+    assert.equal(later.battle, fired.battle);
+    assert.equal(later.battle.score, 6);
+    assert.deepEqual(later.shots, []);
+  }
 });
 
-test('the last unproved salvo may empty the board without blocking its free final proof', () => {
+test('the last unproved salvo still clears immediately when no commands remain', () => {
   const level = mission({ commands: 1 });
   const first = order(createBattle(level), 'x >= 0 && y >= 0 && x + y <= 8', 'false', 'salvo');
   assert.equal(first.battle.remaining, 0);
   assert.equal(first.battle.enemies.length, 0);
-  assert.equal(first.battle.finished, false);
+  assert.equal(first.battle.finished, true);
+  assert.equal(first.battle.cleared, true);
   assert.equal(first.analysis.goal.pass, false);
   assert.equal(first.analysis.specification.pass, false);
-  const failed = order(first.battle, 'false', goal, 'single');
-  assert.equal(failed.reason, 'proof-required');
-  assert.equal(failed.cost, 0);
-  assert.equal(failed.battle.remaining, 0);
-  const completed = order(failed.battle, solution, goal, 'salvo');
-  assert.equal(completed.reason, 'proved');
-  assert.equal(completed.battle.cleared, true);
-  assert.equal(completed.battle.remaining, 0);
+  assert.equal(first.battle.baseScore, 1);
+  assert.equal(first.battle.scoreMultiplier, 1);
+  assert.equal(first.battle.score, 1);
+  const later = order(first.battle, solution, goal, 'salvo');
+  assert.equal(later.reason, 'finished');
+  assert.equal(later.battle, first.battle);
 });
 
-test('an earlier correct proof cannot permanently authorize mission completion under a later weak invariant', () => {
+test('an initially empty initialized battlefield is already complete and offers no post-completion proof', () => {
+  const battle = createBattle(mission({ enemies: [] }));
+  assert.equal(battle.cleared, true);
+  assert.equal(battle.finished, true);
+  assert.equal(battle.objectiveVerified, false);
+  assert.equal(battle.baseScore, battle.remaining);
+  assert.equal(battle.scoreMultiplier, 1);
+  const result = order(battle, solution, goal, 'single');
+  assert.equal(result.reason, 'finished');
+  assert.equal(result.analysis, null);
+  assert.equal(result.battle, battle);
+  assert.equal(result.cost, 0);
+});
+
+test('an earlier correct proof cannot earn a bonus when the final salvo has a weak invariant', () => {
   const level = mission();
   const first = order(createBattle(level), solution, goal, 'single');
   assert.equal(first.battle.objectiveVerified, true);
   assert.equal(first.battle.cleared, false);
+  assert.equal(first.battle.scoreMultiplier, 1);
   const last = order(first.battle, 'x >= 0 && y >= 0 && x + y <= 8', 'true', 'salvo');
   assert.equal(last.reason, 'fired');
   assert.equal(last.dud, false);
   assert.ok(last.shots.length > 0);
   assert.equal(last.battle.objectiveVerified, false);
   assert.equal(last.battle.enemies.length, 0);
-  assert.equal(last.battle.cleared, false);
+  assert.equal(last.battle.cleared, true);
+  assert.equal(last.battle.finished, true);
+  assert.equal(last.battle.scoreMultiplier, 1);
+  assert.equal(last.battle.score, last.battle.baseScore);
+});
+
+test('a final verified salvo earns the bonus even when an earlier shot was unproved', () => {
+  const before = createBattle(mission());
+  const first = order(before, 'x >= 0 && y >= 0 && x + y <= 8', 'false', 'single');
+  assert.equal(first.battle.objectiveVerified, false);
+  assert.equal(first.shots[0].type, 'neutral');
+  assert.equal(first.battle.cleared, false);
+  const last = order(first.battle, solution, goal, 'salvo');
+  assert.equal(last.battle.objectiveVerified, true);
+  assert.equal(last.battle.cleared, true);
+  assert.equal(last.battle.baseScore, 7);
+  assert.equal(last.battle.scoreMultiplier, 2);
+  assert.equal(last.battle.score, 14);
 });
 
 test('battle snapshots own their raw examples and initialized coordinates without exposing mutable aliases', () => {

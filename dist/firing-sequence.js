@@ -34,7 +34,7 @@ export async function runFiringSequence({ iterator, mode, onEvent, signal, wait 
   const pause = async milliseconds => { await wait(milliseconds, signal); return !signal?.aborted; };
   const cancelled = () => ({ cancelled: true });
   const finishEarly = result => {
-    const failed = Boolean(result?.dud || result?.error || result?.reason === 'proof-required');
+    const failed = Boolean(result?.dud || result?.error);
     emit({ type: 'phase', phase: failed ? 'failed' : 'idle', result });
     emit({ type: 'commit', result });
     emit({ type: 'finished', result });

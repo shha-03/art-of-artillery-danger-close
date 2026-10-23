@@ -24,7 +24,8 @@ try { sound = localStorage.getItem(SOUND_STORAGE_KEY) !== 'off'; } catch {}
 const artilleryAudio = createArtilleryAudio();
 artilleryAudio.setEnabled(sound);
 const battleEffects = createBattleEffects({ grid: $('grid'), battlefield: document.querySelector('.battlefield'), commandPanel: document.querySelector('.command-panel') });
-const BEST_STORAGE_KEY = 'danger-close-best-general-v1';
+const BEST_STORAGE_KEY = 'danger-close-best-proof-bonus-v1';
+const PREVIOUS_PROOF_STORAGE_KEY = 'danger-close-best-general-v1';
 const PREVIOUS_BEST_STORAGE_KEY = 'danger-close-best-branches-v1';
 const LEGACY_BEST_STORAGE_KEY = 'danger-close-best-math-v2';
 function readBestScores(storageKey) {
@@ -35,6 +36,7 @@ function readBestScores(storageKey) {
   return {};
 }
 let best=readBestScores(BEST_STORAGE_KEY);
+const previousProofBest=readBestScores(PREVIOUS_PROOF_STORAGE_KEY);
 const previousBest=readBestScores(PREVIOUS_BEST_STORAGE_KEY);
 const legacyBest=readBestScores(LEGACY_BEST_STORAGE_KEY);
 let savedLanguage;
@@ -45,19 +47,20 @@ const t = (key, parameters) => translate(language, key, parameters);
 const levelCopy = (l = level()) => language === 'en' ? l.en : l;
 const chapterCopy = chapter => language === 'en' ? chapter.en : chapter;
 const chapterLevels = id => LEVELS.map((mission, index) => ({ mission, index })).filter(({mission}) => mission.chapter === id);
-const isComplete = mission => best[mission.id] !== undefined || previousBest[mission.id] !== undefined || legacyBest[mission.id] !== undefined;
+const isComplete = mission => best[mission.id] !== undefined || previousProofBest[mission.id] !== undefined || previousBest[mission.id] !== undefined || legacyBest[mission.id] !== undefined;
 const completedCount = missions => missions.filter(isComplete).length;
 const missionStatus = mission => {
   const reports=[];
   if(best[mission.id]!==undefined)reports.push(t('missionBest',{score:best[mission.id]}));
+  if(previousProofBest[mission.id]!==undefined)reports.push(t('previousProofBest',{score:previousProofBest[mission.id]}));
   if(previousBest[mission.id]!==undefined)reports.push(t('previousBest',{score:previousBest[mission.id]}));
   if(legacyBest[mission.id]!==undefined)reports.push(t('legacyBest',{score:legacyBest[mission.id]}));
   return reports.join(' · ')||t('missionUnfinished');
 };
-const missionBadge = mission => best[mission.id]!==undefined?`✓ ${best[mission.id]} PT`:previousBest[mission.id]!==undefined?t('previousBadge',{score:previousBest[mission.id]}):legacyBest[mission.id]!==undefined?t('legacyBadge',{score:legacyBest[mission.id]}):'↗';
+const missionBadge = mission => best[mission.id]!==undefined?`✓ ${best[mission.id]} PT`:previousProofBest[mission.id]!==undefined?t('previousProofBadge',{score:previousProofBest[mission.id]}):previousBest[mission.id]!==undefined?t('previousBadge',{score:previousBest[mission.id]}):legacyBest[mission.id]!==undefined?t('legacyBadge',{score:legacyBest[mission.id]}):'↗';
 const branchName = unit => {const branch=UNIT_TYPES[unit?.branch];return branch?(language==='en'?branch.en.name:branch.name):t('untypedUnit');};
 const signedUnitPoints = (unit,affiliation) => `${affiliation==='enemy'?'+':'−'}${unitPoints(unit)}`;
-const scoreBreakdown = () => t('scoreBreakdown',{enemyPoints:battle.enemyPoints,friendlyPoints:battle.friendlyPoints,remaining:battle.remaining,score:battle.score});
+const scoreBreakdown = () => t(battle.scoreMultiplier===2?'scoreBreakdownBonus':'scoreBreakdown',{enemyPoints:battle.enemyPoints,friendlyPoints:battle.friendlyPoints,remaining:battle.remaining,baseScore:battle.baseScore,score:battle.score});
 const precisionSummary = unit => {
   const risk=unit.targetingRisk;
   if(!Number.isInteger(risk?.friendlyCount))return '';
@@ -215,13 +218,10 @@ function renderStats() {
   for (const id of ['preview-button','trace-button','hint-button','help-button','domain-button']) $(id).disabled=busy;
   document.querySelectorAll('[data-initial-index], [data-insert]').forEach(button=>{button.disabled=busy;});
   $('target-enemies').disabled=busy||battle.finished;
-  const proofOnly=isInitializedLevel(level())&&!battle.enemies.length&&!battle.finished;
   for(const mode of ['single','salvo']) {
-    $(`${mode}-button`).querySelector('[data-i18n-html]').innerHTML=proofOnly
-      ? `${esc(t('finalVerification'))}<small>${esc(t('freeVerification'))}</small>`
-      : UI_COPY[language][`fire.${mode}`];
+    $(`${mode}-button`).querySelector('[data-i18n-html]').innerHTML=UI_COPY[language][`fire.${mode}`];
   }
-  $('command-note').textContent=t(battle.finished?'commandEnded':!battle.enemies.length?'proofRequiredBody':!$('goal-input').value.trim()?'commandNoGoal':'commandKeys');
+  $('command-note').textContent=t(battle.finished?'commandEnded':!$('goal-input').value.trim()?'commandNoGoal':'commandKeys');
 }
 function renderChecks() {
   $('verification-strip').innerHTML=['initial','preservation','goal'].map(k=>{
@@ -275,11 +275,6 @@ function renderFeedback() {
   if(f.type==='ready'||f.type==='modified') return feedback('ready',t(`${f.type}Title`),t(`${f.type}Body`));
   if(f.type==='error') return feedback('error',t('rejectedTitle'),formatEngineError(f.error,language),t('noCharge'));
   if(f.type==='empty') return feedback('ready',t('emptyTitle'),t('emptyBody'),t('noCharge'));
-  if(f.type==='proved') return feedback('success',t('provedTitle'),t('provedBody'),t('noCharge'));
-  if(f.type==='proof-required') {
-    const a=f.analysis, failing=a.initial.pass===false||a.preservation.pass===false;
-    return feedback('warning',t('proofRequiredTitle'),t('proofRequiredBody'),failing?witnessReport(a):t('goalFailed',{point:point(a.specification?.before||a.goal.before)})+witnessContext(a.specification?.before||a.goal.before));
-  }
   if(f.type==='exception') return feedback('error',t('exceptionTitle'),formatEngineError(f.error,language));
   if(f.type==='dud') return feedback('error',t('dudTitle',{mode:t(f.mode)}),t(f.analysis.initial.pass===false?'initialFailure':f.analysis.preservation.pass===false?'preservationFailure':'exitFailure'),witnessReport(f.analysis));
   if(f.type==='fired') {
@@ -334,7 +329,6 @@ function applyOrderResult(result,mode,expression) {
   lastAnalysis=result.analysis||lastAnalysis;
   battle=result.battle;
   if(result.error) {feedbackState={type:'error',error:result};return;}
-  if(result.reason==='proved'||result.reason==='proof-required') {feedbackState={type:result.reason,analysis:lastAnalysis};return;}
   if(result.dud) {
     const failed=lastAnalysis.initial.pass===false?lastAnalysis.initial:lastAnalysis.preservation.pass===false?lastAnalysis.preservation:lastAnalysis.specification?.pass===false?lastAnalysis.specification:lastAnalysis.goal;
     witness=failed?.before||null;
@@ -409,6 +403,10 @@ function renderResult() {
   $('result-copy').textContent=clear?t('resultClear',{name:levelCopy().name,instruction:t(battle.friendlyKills?'resultImprove':'resultBonus')}):t('resultRetry');
   $('result-score').textContent=battle.score;
   $('result-breakdown').textContent=scoreBreakdown();
+  const bonusKey=battle.scoreMultiplier===2?'resultVerifiedBonus':clear?'resultUnprovenBonus':'resultNoBonus';
+  $('result-bonus').dataset.multiplier=String(battle.scoreMultiplier);
+  $('result-bonus-title').textContent=t(`${bonusKey}Title`);
+  $('result-bonus-detail').textContent=t(`${bonusKey}Detail`);
   $('result-stats').innerHTML=`<div><strong>${battle.enemyKills}</strong><span>${esc(t('enemyKills'))}</span></div><div><strong>${battle.friendlyKills}</strong><span>${esc(t('friendlyLosses'))}</span></div><div><strong>${battle.remaining}</strong><span>${esc(t('remaining'))}</span></div>`;
   $('result-next').textContent=t(levelIndex<LEVELS.length-1?'nextMission':'campaignOverview');
 }

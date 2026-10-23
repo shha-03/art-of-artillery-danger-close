@@ -136,14 +136,12 @@ test('initialized-program instructions distinguish universal inputs, test window
     assert.match(UI_COPY[locale]['manual.scopeBody'], /81/);
     assert.match(UI_COPY[locale]['manual.scopeBody'], /4,225/);
     assert.match(UI_COPY[locale]['manual.syntax'], /a, b, n, m/);
-    for (const key of ['battlefieldInputs', 'battlefieldInputsHelp', 'initializedState', 'inputContext', 'proofRequiredTitle', 'proofRequiredBody', 'provedTitle', 'provedBody']) {
+    for (const key of ['battlefieldInputs', 'battlefieldInputsHelp', 'initializedState', 'inputContext']) {
       assert.ok(COPY[locale][key]?.trim(), `${locale}: ${key}`);
     }
   }
   assert.match(COPY.ko.goalPassed, /무한 정수 전체의 증명은 아니다/);
   assert.match(COPY.en.goalPassed, /not a proof over unbounded integers/);
-  assert.match(COPY.ko.proofRequiredBody, /0이어도/);
-  assert.match(COPY.en.proofRequiredBody, /zero orders/);
 });
 
 test('the HTML exposes initialization and a read-only mathematical goal before JavaScript loads', () => {
@@ -154,7 +152,7 @@ test('the HTML exposes initialization and a read-only mathematical goal before J
   assert.match(goal, /\breadonly\b/);
   assert.match(goal, /aria-readonly="true"/);
   assert.match(html.match(/<button\b[^>]*id="target-enemies"[^>]*>/)?.[0] ?? '', /\bhidden\b/);
-  for (const key of ['manual.step1Body', 'manual.scopeBody', 'manual.reachability', 'map.warning', 'feedback.readyBody', 'manual.step3Body', 'manual.step4Body']) {
+  for (const key of ['manual.step1Body', 'manual.scopeBody', 'manual.reachability', 'map.warning', 'feedback.readyBody', 'manual.step3Body', 'manual.step4Title', 'manual.step4Body', 'manual.scoreBonus']) {
     assert.ok(html.includes(UI_COPY.ko[key]), `${key}: Korean fallback matches translated copy`);
   }
   assert.doesNotMatch(html, /적군 좌표를 클릭해|지도에서 표적을 지정하거나/);
@@ -176,6 +174,33 @@ test('both languages distinguish permission to fire from the exit guarantee and 
   assert.match(UI_COPY.en['manual.step3Body'], /Syntax or arithmetic errors[\s\S]*without charge/);
   assert.match(UI_COPY.ko['manual.step3Body'], /단발과 일제사는 모두 명령 1회[\s\S]*중립 → 아군 → 적군/);
   assert.match(UI_COPY.en['manual.step3Body'], /Single shots and salvos each cost one order[\s\S]*neutral → friendly → enemy/);
-  assert.match(UI_COPY.ko['manual.step4Body'], /적 전멸과[\s\S]*고정 수학 명세[\s\S]*무료[\s\S]*0이어도/);
-  assert.match(UI_COPY.en['manual.step4Body'], /all enemies eliminated[\s\S]*fixed mathematical specification[\s\S]*free[\s\S]*zero/);
+  assert.match(UI_COPY.ko['manual.step4Body'], /적이 전멸하면 종료 보장 결과와 관계없이 즉시 작전을 완료/);
+  assert.match(UI_COPY.en['manual.step4Body'], /Eliminating all enemies immediately completes the mission, regardless of the exit guarantee/);
+});
+
+test('completion copy fixes the last-shot bonus at x2 or x1 without offering a post-clear recheck', () => {
+  for (const locale of ['ko', 'en']) {
+    for (const key of ['resultVerifiedBonusTitle', 'resultVerifiedBonusDetail', 'resultUnprovenBonusTitle', 'resultUnprovenBonusDetail', 'resultNoBonusTitle', 'resultNoBonusDetail', 'previousProofBest', 'previousProofBadge']) {
+      assert.ok(COPY[locale][key]?.trim(), `${locale}: ${key}`);
+    }
+    assert.match(COPY[locale].resultVerifiedBonusTitle, /×2/);
+    assert.match(COPY[locale].resultUnprovenBonusTitle, /×1/);
+    assert.match(COPY[locale].resultNoBonusTitle, /×1/);
+    const breakdown = translate(locale, 'scoreBreakdownBonus', { enemyPoints: 12, friendlyPoints: 4, remaining: 1, baseScore: 9, score: 18 });
+    assert.match(breakdown, /12[\s\S]*4[\s\S]*1[\s\S]*9[\s\S]*×2[\s\S]*18/);
+    assert.doesNotMatch(breakdown, /\{\w+\}/);
+    for (const key of ['finalVerification', 'freeVerification', 'proofRequiredTitle', 'proofRequiredBody', 'provedTitle', 'provedBody']) {
+      assert.equal(COPY[locale][key], undefined, `${locale}: obsolete post-clear instruction ${key}`);
+    }
+    assert.doesNotMatch(COPY[locale].resultClear, /명세 통과|specification passed/);
+  }
+  assert.match(UI_COPY.ko['manual.scoreBonus'], /마지막 사격[\s\S]*초기 성립·유지·종료 보장과 고정 명세[\s\S]*기본 점수 ×2/);
+  assert.match(UI_COPY.en['manual.scoreBonus'], /final shot[\s\S]*initiation, preservation, the exit guarantee, and the fixed specification[\s\S]*base score ×2/);
+  assert.match(UI_COPY.ko['manual.scoreBonus'], /종료 미보장 완료·진행 중·명령 소진 실패는 ×1[\s\S]*완료 후에는 재검증하거나 보너스를 추가로 획득할 수 없다/);
+  assert.match(UI_COPY.en['manual.scoreBonus'], /Unproven completions, ongoing operations, and failures due to exhausted orders use ×1[\s\S]*No recheck or additional bonus is available after completion/);
+  const html = readFileSync(new URL('./dist/index.html', import.meta.url), 'utf8');
+  for (const id of ['result-bonus', 'result-bonus-title', 'result-bonus-detail']) {
+    assert.equal(html.split(`id="${id}"`).length - 1, 1, id);
+  }
+  assert.ok(html.indexOf('id="result-score"') < html.indexOf('id="result-bonus"'));
 });
