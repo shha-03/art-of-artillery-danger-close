@@ -80,3 +80,6 @@ Single shots limit each order's damage; salvos offer a higher score by conservin
 Z3 verifies the obligations over mathematical integers, including arbitrary external inputs and states outside the map. Only a proved result passes a check; a timeout or unknown result does not. These checks establish partial correctness: if the loop exits, the proved postcondition holds. They do not prove that the loop terminates.
 
 For further reading, see [implementation details](docs/implementation.md) and [operation explanations and solutions](docs/levels.md).
+
+## Reference
+[Artillery Shooting Sound Effect](https://youtu.be/W2nyFCjJz7k?si=JNjK6oVgqv1KoUdV)
