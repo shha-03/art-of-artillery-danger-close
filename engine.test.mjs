@@ -5,6 +5,7 @@ import {
   DOMAIN, parseExpression, evaluate, analyze, createBattle, order, formatEngineError,
   initialStatesForLevel, traceInputsForLevel,
 } from './dist/engine.js';
+import { unitPoints } from './dist/unit-types.js';
 
 // Retain a source check against dynamic execution while importing real modules.
 const engineSource = await readFile(new URL('./dist/engine.js', import.meta.url), 'utf8');
@@ -243,13 +244,14 @@ test('authored starters expose their intended failure and each solution proves i
     assert.equal(clear.battle.friendlyKills, 0, mission.id);
     assert.equal(clear.shots.length, 3, mission.id);
     assert.equal(clear.battle.remaining, 5, mission.id);
-    assert.equal(clear.battle.enemyPoints, 12, mission.id);
+    const targetPoints = mission.enemies.reduce((sum, unit) => sum + unitPoints(unit), 0);
+    assert.equal(clear.battle.enemyPoints, targetPoints, mission.id);
     assert.equal(clear.battle.friendlyPoints, 0, mission.id);
-    assert.equal(clear.battle.score, 17, mission.id);
+    assert.equal(clear.battle.score, targetPoints + 5, mission.id);
   }
 });
 
-test('three singles score fifteen while one salvo scores seventeen with the same fixed proof region', () => {
+test('three singles and one salvo earn the same target points with two commands saved by the salvo', () => {
   for (const mission of LEVELS) {
     let battle = createBattle(mission);
     for (let shot = 0; shot < 3; shot++) {
@@ -261,8 +263,9 @@ test('three singles score fifteen while one salvo scores seventeen with the same
       battle = result.battle;
     }
     assert.equal(battle.cleared, true, mission.id);
-    assert.equal(battle.enemyPoints, 12, mission.id);
-    assert.equal(battle.score, 15, mission.id);
+    const targetPoints = mission.enemies.reduce((sum, unit) => sum + unitPoints(unit), 0);
+    assert.equal(battle.enemyPoints, targetPoints, mission.id);
+    assert.equal(battle.score, targetPoints + 3, mission.id);
     const salvo = order(createBattle(mission), mission.solution, mission.goalSolution, 'salvo');
     assert.equal(salvo.battle.score - battle.score, 2, mission.id);
   }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Script } from 'node:vm';
 import { LEVELS } from './dist/levels.js';
 import { DOMAIN, analyze, createBattle, evaluate, order, parseExpression } from './dist/engine.js';
+import { unitPoints } from './dist/unit-types.js';
 
 // These mathematical oracles are independent of both the displayed program
 // and the level's step function. Only trusted, repository-owned code runs in VM.
@@ -130,7 +131,8 @@ for (const level of LEVELS.filter((level) => SPECIFICATIONS[level.id])) {
     assert.ok(level.allies.some((ally) => candidates.has(key(ally))));
   });
 
-  test(`${level.id}: weighted targets score fifteen for three singles or seventeen for one salvo`, () => {
+  test(`${level.id}: exact fire awards the target total and saves two commands with a salvo`, () => {
+    const targetPoints = level.enemies.reduce((sum, unit) => sum + unitPoints(unit), 0);
     let singleBattle = createBattle(level);
     assert.equal(singleBattle.remaining, 6);
     for (let index = 0; index < 3; index++) {
@@ -145,7 +147,8 @@ for (const level of LEVELS.filter((level) => SPECIFICATIONS[level.id])) {
     assert.equal(singleBattle.enemyKills, 3);
     assert.equal(singleBattle.friendlyKills, 0);
     assert.equal(singleBattle.remaining, 3);
-    assert.equal(singleBattle.score, 15);
+    assert.equal(singleBattle.enemyPoints, targetPoints);
+    assert.equal(singleBattle.score, targetPoints + 3);
 
     const salvo = order(createBattle(level), level.solution, level.goalSolution, 'salvo');
     assert.equal(salvo.reason, 'fired');
@@ -156,7 +159,8 @@ for (const level of LEVELS.filter((level) => SPECIFICATIONS[level.id])) {
     assert.equal(salvo.battle.enemyKills, 3);
     assert.equal(salvo.battle.friendlyKills, 0);
     assert.equal(salvo.battle.remaining, 5);
-    assert.equal(salvo.battle.score, 17);
+    assert.equal(salvo.battle.enemyPoints, targetPoints);
+    assert.equal(salvo.battle.score, targetPoints + 5);
   });
 }
 

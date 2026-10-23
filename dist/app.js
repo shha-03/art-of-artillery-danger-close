@@ -14,7 +14,8 @@ let browsingChapter = CHAPTERS[0].id;
 let traceInputs = [], allowedInputCount = 0;
 let preview = true, traceVisible = false, busy = false, sound = false, audioContext = null;
 let witness = null, impacts = [], hintCount = 1, turnToken = 0, toastTimer;
-const BEST_STORAGE_KEY = 'danger-close-best-branches-v1';
+const BEST_STORAGE_KEY = 'danger-close-best-precision-v1';
+const PREVIOUS_BEST_STORAGE_KEY = 'danger-close-best-branches-v1';
 const LEGACY_BEST_STORAGE_KEY = 'danger-close-best-math-v2';
 function readBestScores(storageKey) {
   try {
@@ -24,6 +25,7 @@ function readBestScores(storageKey) {
   return {};
 }
 let best=readBestScores(BEST_STORAGE_KEY);
+const previousBest=readBestScores(PREVIOUS_BEST_STORAGE_KEY);
 const legacyBest=readBestScores(LEGACY_BEST_STORAGE_KEY);
 let savedLanguage;
 try { savedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY); } catch {}
@@ -33,18 +35,26 @@ const t = (key, parameters) => translate(language, key, parameters);
 const levelCopy = (l = level()) => language === 'en' ? l.en : l;
 const chapterCopy = chapter => language === 'en' ? chapter.en : chapter;
 const chapterLevels = id => LEVELS.map((mission, index) => ({ mission, index })).filter(({mission}) => mission.chapter === id);
-const isComplete = mission => best[mission.id] !== undefined || legacyBest[mission.id] !== undefined;
+const isComplete = mission => best[mission.id] !== undefined || previousBest[mission.id] !== undefined || legacyBest[mission.id] !== undefined;
 const completedCount = missions => missions.filter(isComplete).length;
 const missionStatus = mission => {
   const reports=[];
   if(best[mission.id]!==undefined)reports.push(t('missionBest',{score:best[mission.id]}));
+  if(previousBest[mission.id]!==undefined)reports.push(t('previousBest',{score:previousBest[mission.id]}));
   if(legacyBest[mission.id]!==undefined)reports.push(t('legacyBest',{score:legacyBest[mission.id]}));
   return reports.join(' · ')||t('missionUnfinished');
 };
-const missionBadge = mission => best[mission.id]!==undefined?`✓ ${best[mission.id]} PT`:legacyBest[mission.id]!==undefined?t('legacyBadge',{score:legacyBest[mission.id]}):'↗';
+const missionBadge = mission => best[mission.id]!==undefined?`✓ ${best[mission.id]} PT`:previousBest[mission.id]!==undefined?t('previousBadge',{score:previousBest[mission.id]}):legacyBest[mission.id]!==undefined?t('legacyBadge',{score:legacyBest[mission.id]}):'↗';
 const branchName = unit => {const branch=UNIT_TYPES[unit?.branch];return branch?(language==='en'?branch.en.name:branch.name):t('untypedUnit');};
 const signedUnitPoints = (unit,affiliation) => `${affiliation==='enemy'?'+':'−'}${unitPoints(unit)}`;
 const scoreBreakdown = () => t('scoreBreakdown',{enemyPoints:battle.enemyPoints,friendlyPoints:battle.friendlyPoints,remaining:battle.remaining,score:battle.score});
+const precisionSummary = unit => {
+  const risk=unit.targetingRisk;
+  if(!Number.isInteger(risk?.friendlyCount))return '';
+  if(risk.friendlyCount===0)return t('rosterSimpleSeparation');
+  const coordinates=(risk.friendlies||[]).map(point).join(', ');
+  return t('rosterSeparation',{count:risk.friendlyCount})+(coordinates?` · ${t('rosterPrecisionCoordinates',{coordinates})}`:'');
+};
 
 function level() { return LEVELS[levelIndex]; }
 function flash(messageKey) {
@@ -168,7 +178,8 @@ function renderUnitRoster() {
   const hits=new Set(battle.hit.map(key));
   $('roster-content').innerHTML=[['enemy',level().enemies],['friendly',level().allies]].map(([affiliation,units])=>`<section class="roster-side ${affiliation}"><h3>${esc(t(affiliation))}</h3><ul>${units.map(unit=>{
     const struck=hits.has(key(unit));
-    const status=struck?t(affiliation==='enemy'?'rosterEliminated':'rosterLost'):affiliation==='enemy'?t('rosterShotRank',{rank:unit.targetingRisk.shotRank}):t('rosterFriendly');
+    const criterion=affiliation==='enemy'?precisionSummary(unit):t('rosterFriendly');
+    const status=(struck?`${t(affiliation==='enemy'?'rosterEliminated':'rosterLost')} · `:'')+criterion;
     return `<li class="roster-unit ${struck?'is-struck':''}">${unitSymbol(affiliation,unit.branch,'roster-symbol')}<span class="roster-identity"><strong>${esc(branchName(unit))}</strong><code>${point(unit)}</code></span><b class="roster-value">${signedUnitPoints(unit,affiliation)}</b><small>${esc(status)}</small></li>`;
   }).join('')}</ul></section>`).join('');
 }

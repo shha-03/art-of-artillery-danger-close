@@ -33,21 +33,49 @@ export function unitSymbol(affiliation, branch, className = 'unit-icon') {
 }
 
 /**
- * Every valid invariant includes all actual enemy endpoints. With exact fire,
- * neutral/friendly cells are absent and singles hit enemies in x-then-y order.
- * Assign higher values to endpoints requiring more single-shot orders. This is
- * targeting order, not a claim about geometric distance or proof complexity.
+ * Enemy values follow friendly leakage under the declared interval abstraction:
+ * zero, one, or at least two leaked allies map to 2, 4, or 6 points. Equal counts
+ * stay equal; no distance or firing-order tie-breaker is applied. Friendly branch
+ * assignments retain the stable coordinate ordering used by earlier campaigns.
  */
-export function withUnitBranches(level) {
+export function withUnitBranches(level, risks) {
   const branches = ['infantry', 'armor', 'artillery'];
-  const attach = (units, enemies) => {
-    if (units.length !== branches.length) throw new TypeError('Campaign missions require three units per side.');
-    const sorted = [...units].sort((a, b) => a.x - b.x || a.y - b.y);
-    const ranks = new Map(sorted.map((unit, index) => [`${unit.x},${unit.y}`, index]));
-    return units.map(unit => {
-      const rank = ranks.get(`${unit.x},${unit.y}`);
-      return { ...unit, branch: branches[rank], ...(enemies ? { targetingRisk: { shotRank: rank + 1 } } : {}) };
-    });
-  };
-  return { ...level, enemies: attach(level.enemies, true), allies: attach(level.allies, false) };
+  const key = ({ x, y }) => `${x},${y}`;
+  if (!Array.isArray(level.enemies) || !Array.isArray(level.allies)
+    || level.enemies.length !== branches.length || level.allies.length !== branches.length) {
+    throw new TypeError('Campaign missions require three units per side.');
+  }
+  if (!Array.isArray(risks) || risks.length !== level.enemies.length) {
+    throw new TypeError('Every enemy requires one refinement-risk result.');
+  }
+  const enemyLocations = new Set(level.enemies.map(key));
+  const allyLocations = new Set(level.allies.map(key));
+  const riskByLocation = new Map();
+  for (const risk of risks) {
+    const location = key(risk);
+    if (!enemyLocations.has(location) || riskByLocation.has(location)) {
+      throw new TypeError('Refinement-risk coordinates must match enemies exactly once.');
+    }
+    if (risk.model !== 'interval-refinement-v1' || !Number.isInteger(risk.friendlyCount)
+      || risk.friendlyCount < 0 || !Array.isArray(risk.friendlies)
+      || risk.friendlies.length !== risk.friendlyCount
+      || new Set(risk.friendlies.map(key)).size !== risk.friendlyCount
+      || risk.friendlies.some(ally => !allyLocations.has(key(ally)))) {
+      throw new TypeError('Refinement-risk friendly witnesses must match their count and the layout.');
+    }
+    riskByLocation.set(location, risk);
+  }
+  if (enemyLocations.size !== level.enemies.length || riskByLocation.size !== enemyLocations.size) {
+    throw new TypeError('Refinement-risk coordinates must match enemies exactly once.');
+  }
+  const enemies = level.enemies.map(unit => {
+    const { x, y, ...risk } = riskByLocation.get(key(unit));
+    return { ...unit, branch: branches[Math.min(risk.friendlyCount, 2)], targetingRisk: {
+      ...risk, friendlies: risk.friendlies.map(({ x, y }) => ({ x, y })), bounds: { ...risk.bounds },
+    } };
+  });
+  const sortedAllies = [...level.allies].sort((a, b) => a.x - b.x || a.y - b.y);
+  const allyBranches = new Map(sortedAllies.map((unit, index) => [key(unit), branches[index]]));
+  const allies = level.allies.map(unit => ({ ...unit, branch: allyBranches.get(key(unit)) }));
+  return { ...level, enemies, allies };
 }

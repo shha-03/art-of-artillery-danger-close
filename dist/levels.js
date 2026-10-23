@@ -1,6 +1,7 @@
 import { BASIC_LEVELS } from './levels-basic.js';
 import { ADVANCED_LEVELS } from './levels-advanced.js';
 import { withUnitBranches } from './unit-types.js';
+import { computeRefinementRisks } from './refinement-risk.js';
 
 // Stable IDs keep earlier completion records available across scoring versions.
 const LEGACY_LEVELS = [
@@ -201,7 +202,8 @@ export const LEVELS = campaignOrder.map((id, index) => {
   const mission = missions.get(id);
   if (!mission) throw new Error(`Missing campaign mission: ${id}`);
   const legacyConcept = legacyConcepts[id];
-  return withUnitBranches({ ...mission, chapter: Math.floor(index / 4) + 1,
+  const level = { ...mission, chapter: Math.floor(index / 4) + 1,
     concept: legacyConcept?.[0] ?? mission.concept,
-    en: { ...mission.en, concept: legacyConcept?.[1] ?? mission.en.concept } });
+    en: { ...mission.en, concept: legacyConcept?.[1] ?? mission.en.concept } };
+  return withUnitBranches(level, computeRefinementRisks(level));
 });

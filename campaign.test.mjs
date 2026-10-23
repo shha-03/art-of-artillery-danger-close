@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Script, createContext } from 'node:vm';
 import { LEVELS, CHAPTERS } from './dist/levels.js';
 import { DOMAIN, analyze, evaluate, parseExpression, createBattle, order } from './dist/engine.js';
-import { UNIT_TYPES, unitPoints, withUnitBranches } from './dist/unit-types.js';
+import { UNIT_TYPES, unitPoints } from './dist/unit-types.js';
 
 const pairs = values => values.map(([x, y]) => ({ x, y }));
 const keys = values => values.map(({ x, y }) => `${x},${y}`).sort();
@@ -55,40 +55,32 @@ test('twenty stable mission IDs form five localized chapters in learning order',
   }
 });
 
-test('every campaign assigns higher-value branches to later actual single-shot targets', () => {
+test('campaign single shots award the deployed branch value independently of firing order', () => {
   for (const level of LEVELS) {
     for (const side of [level.enemies, level.allies]) {
-      assert.deepEqual(side.map(u => u.branch).sort(), Object.keys(UNIT_TYPES).sort());
-      assert.equal(side.reduce((sum, unit) => sum + unitPoints(unit), 0), 12);
+      assert.ok(side.every(unit => Object.hasOwn(UNIT_TYPES, unit.branch)));
     }
+    assert.deepEqual(level.allies.map(unit => unit.branch).sort(), Object.keys(UNIT_TYPES).sort());
+    assert.equal(level.allies.reduce((sum, unit) => sum + unitPoints(unit), 0), 12);
+    const totalPoints = level.enemies.reduce((sum, unit) => sum + unitPoints(unit), 0);
     let battle = createBattle(level);
-    for (let rank = 1; rank <= 3; rank++) {
+    const expectedOrder = [...level.enemies].sort((a, b) => a.x - b.x || a.y - b.y);
+    for (const deployed of expectedOrder) {
       const result = order(battle, level.solution, level.goalSolution, 'single');
       assert.equal(result.reason, 'fired');
       assert.equal(result.cost, 1);
       assert.equal(result.shots.length, 1);
       const shot = result.shots[0];
       assert.equal(shot.type, 'enemy');
-      assert.equal(shot.points, rank * 2, `${level.id}: reward increases with actual orders required`);
-      const deployed = level.enemies.find(unit => unit.x === shot.x && unit.y === shot.y);
-      assert.equal(deployed.targetingRisk.shotRank, rank);
+      assert.deepEqual({ x: shot.x, y: shot.y }, { x: deployed.x, y: deployed.y });
+      assert.equal(shot.points, unitPoints(deployed), `${level.id}: award the catalog value of the actual target`);
       assert.equal(shot.branch, deployed.branch);
       battle = result.battle;
     }
-    assert.equal(battle.enemyPoints, 12);
+    assert.equal(battle.enemyPoints, totalPoints);
     assert.equal(battle.friendlyPoints, 0);
-    assert.equal(battle.score, 15);
+    assert.equal(battle.score, totalPoints + level.commands - expectedOrder.length);
   }
-});
-
-test('branch assignment follows positions, not source array order, and preserves input coordinates', () => {
-  const mission = { enemies: pairs([[8, 1], [1, 8], [1, 2]]), allies: pairs([[7, 2], [3, 0], [0, 4]]) };
-  const original = structuredClone(mission);
-  const assigned = withUnitBranches(mission);
-  assert.deepEqual(mission, original);
-  assert.deepEqual(assigned.enemies.map(u => u.branch), ['artillery', 'armor', 'infantry']);
-  assert.deepEqual(assigned.enemies.map(u => u.targetingRisk.shotRank), [3, 2, 1]);
-  assert.deepEqual(assigned.allies.map(u => u.branch), ['artillery', 'armor', 'infantry']);
 });
 
 for (const level of LEVELS.filter(l => specifications[l.id])) {
