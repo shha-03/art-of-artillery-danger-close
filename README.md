@@ -30,6 +30,10 @@ node --test
 
 ## How to play
 
+![Battlefield map alongside the invariant editor and firing controls](docs/images/gameplay.jpg)
+
+The battlefield map is on the left; the invariant editor and firing controls are on the right.
+
 1. Select an operation and open **Initialization & loop**. Read the program and its fixed, read-only `ensures` condition: the result you want to guarantee when the loop exits.
 2. Write a condition in the empty **Firing solution** field. It must hold after initialization and remain true after every loop iteration. Use only the condition, without the `invariant` keyword or a semicolon.
 3. Switch to **Battlefield** to inspect the candidate area and execution trace. In three-variable operations, change the `z` layer to inspect other parts of the battlefield.
