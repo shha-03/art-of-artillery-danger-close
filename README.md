@@ -4,7 +4,10 @@ Command artillery by writing loop invariants. Eliminate enemy units while protec
 
 ## Run
 
-[Play the deployed game](https://art-of-artillery-danger-close.duskykoala25.chatgpt.site/) directly in your browser. No installation is required.
+Play directly in your browser. No installation is required:
+
+- [Play on GitHub Pages](https://shha-03.github.io/art-of-artillery-danger-close/)
+- [Play on OpenAI Sites](https://art-of-artillery-danger-close.duskykoala25.chatgpt.site/)
 
 To run the game locally, install Node.js 20 or later, then run this command from the project directory:
 
@@ -73,7 +76,7 @@ Final score = base score × verification multiplier
 
 The multiplier is **2** when the shot that eliminates the last enemy passes all checks, including the fixed specification. Otherwise it is **1**. The multiplier applies to the entire base score. Completed scores cannot be changed by a later recheck; restart to try again. Best scores are saved for completed operations.
 
-Best scores are stored in this browser. Records from the earlier bounded checker are retained separately from scores earned with Z3.
+Best scores are stored in this browser, separately for each site address. Records from the earlier bounded checker are retained separately from scores earned with Z3.
 
 Single shots limit each order's damage; salvos offer a higher score by conserving orders but expose every candidate to fire. A more precise invariant helps exclude friendly positions.
 
