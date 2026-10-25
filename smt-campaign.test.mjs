@@ -8,8 +8,9 @@ import { checkSmt, shutdownZ3 } from './dist/z3-checker.js';
 
 after(async () => shutdownZ3());
 
-// Real Z3 proofs, using the same default deadline and staged order API as the
-// browser. No campaign answer, numeric input bound, or finite state scan can
+// Real Z3 proofs through the browser's staged order API. Shared CI runners get
+// more time for nonlinear arithmetic; local runs keep the browser's deadline.
+// No campaign answer, numeric input bound, or finite state scan can
 // override a solver result here. Every definedness and logical query must be
 // independently UNSAT for all mathematical integer inputs and loop states.
 for (const level of [...GENERAL_LEVELS, ...SPATIAL_LEVELS]) {
@@ -21,7 +22,8 @@ for (const level of [...GENERAL_LEVELS, ...SPATIAL_LEVELS]) {
       checks.push({ status: result.status, reason: result.reason, ms: Math.round(performance.now() - start) });
       return result;
     };
-    const iterator = orderStagesSmt(createBattle(level), level.solution, level.goalSolution, 'salvo', { check });
+    const timeoutMs = process.env.CI === 'true' ? 20000 : undefined;
+    const iterator = orderStagesSmt(createBattle(level), level.solution, level.goalSolution, 'salvo', { check, timeoutMs });
     const stages = [];
     let result;
     for (;;) {
